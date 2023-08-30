@@ -3,13 +3,26 @@ package recipes
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 type products []product
 
+func (ps products) String() string {
+	strs := make([]string, len(ps))
+	for i, p := range ps {
+		strs[i] = p.String()
+	}
+	return fmt.Sprintf("[%s]", strings.Join(strs, ", "))
+}
+
 type product struct {
 	Name   string
 	Amount int
+}
+
+func (p product) String() string {
+	return fmt.Sprintf("%s (%d)", p.Name, p.Amount)
 }
 
 func (ps *products) UnmarshalJSON(b []byte) error {

@@ -34,11 +34,25 @@ func New() (recipes, error) {
 type recipes []recipe
 
 type recipe struct {
-	Name        string      `json:"mDisplayName"`
+	DisplayName string      `json:"mDisplayName"`
 	ProducedIn  Producer    `json:"mProducedIn"`
 	Ingredients Ingredients `json:"mIngredients"`
 	Products    products    `json:"mProduct"`
 	Duration    floatString `json:"mManufactoringDuration"`
+}
+
+func (r recipe) Name() string {
+	return r.DisplayName
+}
+
+func (r recipe) String() string {
+	return fmt.Sprintf(
+		"%s (%s) %s => %s",
+		r.Name(),
+		r.ProducedIn.String(),
+		r.Ingredients.String(float64(r.Duration)),
+		r.Products.String(),
+	)
 }
 
 func (rs *recipes) UnmarshalJSON(b []byte) error {

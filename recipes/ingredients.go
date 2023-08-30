@@ -8,9 +8,21 @@ import (
 
 type Ingredients []Ingredient
 
+func (is Ingredients) String(d float64) string {
+	strs := make([]string, len(is))
+	for i, ingredient := range is {
+		strs[i] = ingredient.String(d)
+	}
+	return fmt.Sprintf("[%s]", strings.Join(strs, ", "))
+}
+
 type Ingredient struct {
 	Name   string
-	Amount int
+	Amount float64
+}
+
+func (i Ingredient) String(d float64) string {
+	return fmt.Sprintf("%s (%.2f)", i.Name, i.Amount/d)
 }
 
 func (i *Ingredients) UnmarshalJSON(b []byte) error {
@@ -56,7 +68,7 @@ func (i *Ingredients) UnmarshalJSON(b []byte) error {
 		}
 
 		// Parse ingredient amount
-		amount, err := strconv.Atoi(amountStr)
+		amount, err := strconv.ParseFloat(amountStr, 32)
 		if err != nil {
 			return fmt.Errorf("failed to parse ingredient count: %w", err)
 		}

@@ -20,7 +20,7 @@ func TestNew(t *testing.T) {
 			got, err := New()
 			assert.NoError(t, err, "New() error = %v", err)
 			for _, recipe := range got {
-				fmt.Printf("\n%s\n%v\n%v\n%f\n", recipe.Name, recipe.Ingredients, recipe.Products, recipe.Duration)
+				fmt.Printf("\n%s\n%v\n%v\n%f\n", recipe.DisplayName, recipe.Ingredients, recipe.Products, recipe.Duration)
 			}
 		})
 	}

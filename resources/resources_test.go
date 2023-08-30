@@ -20,11 +20,11 @@ func TestNew(t *testing.T) {
 			assert.NoError(t, err, "New() error = %v", err)
 			nodes := make(map[string]int)
 			for _, v := range got {
-				_, ok := nodes[string(v.Name)]
+				_, ok := nodes[string(v.Type)]
 				if ok {
-					nodes[string(v.Name)] = nodes[string(v.Name)] + 1
+					nodes[string(v.Type)] = nodes[string(v.Type)] + 1
 				} else {
-					nodes[string(v.Name)] = 1
+					nodes[string(v.Type)] = 1
 				}
 			}
 		})
