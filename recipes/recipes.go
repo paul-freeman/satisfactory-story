@@ -5,11 +5,12 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strconv"
 
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
+
+	"github.com/paul-freeman/satisfactory-story/products"
 )
 
 //go:embed Docs.json
@@ -34,11 +35,11 @@ func New() (recipes, error) {
 type recipes []recipe
 
 type recipe struct {
-	DisplayName string      `json:"mDisplayName"`
-	ProducedIn  Producer    `json:"mProducedIn"`
-	Ingredients Ingredients `json:"mIngredients"`
-	Products    products    `json:"mProduct"`
-	Duration    floatString `json:"mManufactoringDuration"`
+	DisplayName    string            `json:"mDisplayName"`
+	ProducedIn     Producer          `json:"mProducedIn"`
+	InputProducts  products.Products `json:"mIngredients"`
+	OutputProducts products.Products `json:"mProduct"`
+	Duration       floatString       `json:"mManufactoringDuration"`
 }
 
 func (r recipe) Name() string {
@@ -50,9 +51,17 @@ func (r recipe) String() string {
 		"%s (%s) %s => %s",
 		r.Name(),
 		r.ProducedIn.String(),
-		r.Ingredients.String(float64(r.Duration)),
-		r.Products.String(),
+		r.InputProducts.String(float32(r.Duration)),
+		r.OutputProducts.String(float32(r.Duration)),
 	)
+}
+
+func (r recipe) Inputs() products.Products {
+	return r.InputProducts
+}
+
+func (r recipe) Outputs() products.Products {
+	return r.OutputProducts
 }
 
 func (rs *recipes) UnmarshalJSON(b []byte) error {
@@ -109,10 +118,4 @@ func (f *floatString) UnmarshalJSON(b []byte) error {
 	}
 	*f = floatString(fl)
 	return nil
-}
-
-var re *regexp.Regexp
-
-func init() {
-	re = regexp.MustCompile(`\(([^)]+)\)`) // Match text between parentheses
 }

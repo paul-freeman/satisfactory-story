@@ -13,58 +13,6 @@ import (
 //go:embed Resource.json
 var resourceJson []byte
 
-type name string
-
-const (
-	limestone name = "Limestone"
-	iron      name = "Iron"
-	copper    name = "Copper"
-	caterium  name = "Caterium"
-	coal      name = "Coal"
-	oil       name = "Oil"
-	sulfur    name = "Sulfur"
-	bauxite   name = "Bauxite"
-	quatrz    name = "Quartz"
-	uranium   name = "Uranium"
-	sam       name = "SAM"
-	geyser    name = "Geyser"
-)
-
-func new(s string) (name, error) {
-	switch strings.ToLower(s) {
-	case "limestone":
-		return limestone, nil
-	case "iron":
-		return iron, nil
-	case "copper":
-		return copper, nil
-	case "caterium":
-		return caterium, nil
-	case "coal":
-		return coal, nil
-	case "oil":
-		return oil, nil
-	case "sulfur":
-		return sulfur, nil
-	case "bauxite":
-		return bauxite, nil
-	case "quartz":
-		return quatrz, nil
-	case "uranium":
-		return uranium, nil
-	case "sam":
-		return sam, nil
-	case "geyser":
-		return geyser, nil
-	default:
-		return "", fmt.Errorf("invalid resource name: %s", s)
-	}
-}
-
-func (n name) String() string {
-	return string(n)
-}
-
 type purity string
 
 const (
@@ -107,12 +55,15 @@ func New() ([]resource, error) {
 		} else {
 			return nil, fmt.Errorf("invalid resource ID: %s", data.ID)
 		}
-		t, err := products.FromString(s)
+		t, err := products.NameFromString(s)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create resource: %w", err)
 		}
 		resources[i] = resource{
-			Type:   t,
+			Type: products.Product{
+				Name:   t,
+				Amount: 1, // TODO: fix this
+			},
 			Purity: purity,
 			Loc:    point.Point{X: int(data.Longitude * 100), Y: int(data.Latitude * 100)},
 		}
@@ -122,7 +73,7 @@ func New() ([]resource, error) {
 }
 
 func (r resource) Name() string {
-	return string(r.Type)
+	return string(r.Type.Name)
 }
 
 func (r resource) String() string {
@@ -145,6 +96,10 @@ func (r resource) Products() products.Products {
 	return products.Products{r.Type}
 }
 
-func (r resource) Profit() float64 {
+func (r resource) Profit() float32 {
 	return 0
+}
+
+func (r resource) Produces(p products.Product) bool {
+	return r.Type == p
 }
