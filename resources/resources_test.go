@@ -19,12 +19,12 @@ func TestNew(t *testing.T) {
 			got, err := New()
 			assert.NoError(t, err, "New() error = %v", err)
 			nodes := make(map[string]int)
-			for _, v := range got {
-				_, ok := nodes[string(v.Type.Name)]
+			for _, resource := range got {
+				_, ok := nodes[string(resource.Product.Name())]
 				if ok {
-					nodes[string(v.Type.Name)] = nodes[string(v.Type.Name)] + 1
+					nodes[string(resource.Product.Name())] = nodes[string(resource.Product.Name())] + 1
 				} else {
-					nodes[string(v.Type.Name)] = 1
+					nodes[string(resource.Product.Name())] = 1
 				}
 			}
 		})

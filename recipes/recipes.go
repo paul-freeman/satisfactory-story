@@ -39,7 +39,7 @@ type recipe struct {
 	ProducedIn     Producer          `json:"mProducedIn"`
 	InputProducts  products.Products `json:"mIngredients"`
 	OutputProducts products.Products `json:"mProduct"`
-	Duration       floatString       `json:"mManufactoringDuration"`
+	DurationStr    floatString       `json:"mManufactoringDuration"`
 }
 
 func (r recipe) Name() string {
@@ -51,8 +51,8 @@ func (r recipe) String() string {
 		"%s (%s) %s => %s",
 		r.Name(),
 		r.ProducedIn.String(),
-		r.InputProducts.String(float32(r.Duration)),
-		r.OutputProducts.String(float32(r.Duration)),
+		r.InputProducts.String(),
+		r.OutputProducts.String(),
 	)
 }
 
@@ -62,6 +62,10 @@ func (r recipe) Inputs() products.Products {
 
 func (r recipe) Outputs() products.Products {
 	return r.OutputProducts
+}
+
+func (r recipe) Duration() float64 {
+	return float64(r.DurationStr)
 }
 
 func (rs *recipes) UnmarshalJSON(b []byte) error {

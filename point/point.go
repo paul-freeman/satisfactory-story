@@ -1,6 +1,9 @@
 package point
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 type Point struct {
 	X int
@@ -9,4 +12,12 @@ type Point struct {
 
 func (p Point) String() string {
 	return fmt.Sprintf("(%d, %d)", p.X, p.Y)
+}
+
+func (p Point) Distance(q Point) float64 {
+	a := float64(p.X - q.X)
+	b := float64(p.Y - q.Y)
+	return math.Sqrt(
+		math.Abs(math.Pow(a, 2)) + math.Abs(math.Pow(b, 2)),
+	)
 }
