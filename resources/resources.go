@@ -103,10 +103,6 @@ func (r *resource) HasProduct(p products.Product) bool {
 	return r.Product.Name() == p.Name()
 }
 
-func (r *resource) AddProfits(p float64) {
-	r.profit += p
-}
-
 func toCanonicalName(name string) string {
 	switch name {
 	case "limestone":

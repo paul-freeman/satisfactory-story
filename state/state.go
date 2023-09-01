@@ -30,8 +30,6 @@ type producer interface {
 	Profit() float64
 	// HasProduct returns true if the producer produces the given product.
 	HasProduct(products.Product) bool
-	// AddProfits adds the given amount to the producer's profits.
-	AddProfits(float64)
 }
 
 // specifier is a type that can be used to specify a producer
@@ -238,10 +236,8 @@ func (s *state) spawnNewProducers(l *slog.Logger) {
 	// Add the new producer
 	factoryBuilding := factory.New(spec.Name(), loc, spec.Inputs(), spec.Outputs(), spec.Duration())
 	for _, pc := range sourcedProducts {
-		// TODO: This is not ideal, since the seller benefits from the distance
-		// being greater.
-		pc.p.AddProfits(pc.cost)
-		factoryBuilding.AddProfits(-pc.cost)
+		// TODO: Decide what to do here
+		_ = pc
 	}
 	s.producers = append(s.producers, factoryBuilding)
 	l.Info("spawned producer", slog.String("producer", factoryBuilding.String()), slog.Float64("profit", factoryBuilding.Profit()), slog.Float64("cost", factoryBuilding.Profit()-factoryBuilding.Profit()))

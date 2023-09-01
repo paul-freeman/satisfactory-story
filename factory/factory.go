@@ -68,11 +68,6 @@ func (f *factory) Profit() float64 {
 	return f.profits
 }
 
-// AddProfits implements producer.
-func (f *factory) AddProfits(p float64) {
-	f.profits += p
-}
-
 // String implements producer.
 func (f *factory) String() string {
 	return fmt.Sprintf("%s @ %s", f.name, f.loc.String())
