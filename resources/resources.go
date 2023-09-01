@@ -60,6 +60,7 @@ func New() ([]*resource, error) {
 		} else {
 			return nil, fmt.Errorf("invalid resource ID: %s", data.ID)
 		}
+		name = toCanonicalName(name)
 		resources[i] = &resource{
 			Product: products.New(name, 1, rate/60.0),
 			Purity:  purity,
@@ -99,9 +100,36 @@ func (r resource) Profit() float64 {
 }
 
 func (r *resource) HasProduct(p products.Product) bool {
-	return r.Product == p
+	return r.Product.Name() == p.Name()
 }
 
 func (r *resource) AddProfits(p float64) {
 	r.profit += p
+}
+
+func toCanonicalName(name string) string {
+	switch name {
+	case "limestone":
+		return "Stone"
+	case "iron":
+		return "OreIron"
+	case "copper":
+		return "OreCopper"
+	case "caterium":
+		return "OreGold"
+	case "coal":
+		return "Coal"
+	case "oil":
+		return "LiquidOil"
+	case "sulfur":
+		return "Sulfur"
+	case "bauxite":
+		return "OreBauxite"
+	case "quartz":
+		return "RawQuartz"
+	case "uranium":
+		return "OreUranium"
+	default:
+		return name
+	}
 }

@@ -21,5 +21,9 @@ func (p Product) Name() string {
 }
 
 func (p Product) String() string {
-	return fmt.Sprintf("%s (%.2f)", p.name, p.amount/p.duration)
+	rate := 0.0
+	if p.duration != 0 {
+		rate = p.amount / p.duration
+	}
+	return fmt.Sprintf("%s (%.2f)", p.name, rate)
 }

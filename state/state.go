@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"os"
 	"sort"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
@@ -52,21 +51,18 @@ type state struct {
 	producers []producer
 	specs     []specifier
 
+	seed int64
 	tick int
 
-	rSrc *rand.Rand
+	randSrc *rand.Rand
 
 	xmin int
 	xmax int
 	ymin int
 	ymax int
-
-	logger *slog.Logger
 }
 
-func New(seed int64) (*state, error) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-
+func New(l *slog.Logger, seed int64) (*state, error) {
 	// Load resources and recipes
 	resources, err := resources.New()
 	if err != nil {
@@ -113,56 +109,51 @@ func New(seed int64) (*state, error) {
 
 		tick: 0,
 
-		rSrc: rand.New(rand.NewSource(seed)),
+		randSrc: rand.New(rand.NewSource(seed)),
 
 		xmin: int(float64(xmin) * borderMultiplier),
 		xmax: int(float64(xmax) * borderMultiplier),
 		ymin: int(float64(ymin) * borderMultiplier),
 		ymax: int(float64(ymax) * borderMultiplier),
-
-		logger: logger,
 	}, nil
 }
 
-func (s *state) Tick() error {
+func (s *state) Tick(parentLogger *slog.Logger) error {
+	s.tick++
+	l := parentLogger.With(slog.Int("tick", s.tick))
+
 	// Step 1: Remove unprofitable producers
-	_, err := s.removeUnprofitableProducers()
-	if err != nil {
-		return fmt.Errorf("failed to remove unprofitable producers: %w", err)
-	}
+	s.removeUnprofitableProducers(l)
 
 	// Step 2: Spawn new producers
-	err = s.spawnNewProducers()
-	if err != nil {
-		s.logger.Debug("failed to spawn new producers", err)
-	}
+	s.spawnNewProducers(l)
 
 	// Step 3: Move producers
 
 	return nil
 }
 
-type producerProfit struct {
+type producerStats struct {
 	p      producer
 	profit float64
 }
 
-func (s *state) removeUnprofitableProducers() (int, error) {
+func (s *state) removeUnprofitableProducers(l *slog.Logger) {
 	// Group producers by product
-	groupedPPS := make(map[string][](producerProfit))
+	groupedStats := make(map[string][](producerStats))
 	for _, p := range s.producers {
-		pp := producerProfit{p, p.Profit()}
+		newStats := producerStats{p, p.Profit()}
 		productsStr := p.Products().String()
-		producers, ok := groupedPPS[productsStr]
+		currentStats, ok := groupedStats[productsStr]
 		if !ok {
-			groupedPPS[productsStr] = []producerProfit{pp}
+			groupedStats[productsStr] = []producerStats{newStats}
 		} else {
-			groupedPPS[productsStr] = append(producers, pp)
+			groupedStats[productsStr] = append(currentStats, newStats)
 		}
 	}
 
 	// Sort producers groups by profit - most profitable first
-	for _, producers := range groupedPPS {
+	for _, producers := range groupedStats {
 		sort.Slice(producers, func(i, j int) bool {
 			return producers[i].profit > producers[j].profit
 		})
@@ -170,26 +161,26 @@ func (s *state) removeUnprofitableProducers() (int, error) {
 
 	// Remove unprofitable producers
 	removedCount := 0
-	s.producers = make([]producer, 0, len(s.producers))
-	for _, pps := range groupedPPS {
+	finalProducers := make([]producer, 0, len(s.producers))
+	for _, pps := range groupedStats {
 		// Keep the most profitable producer
-		s.producers = append(s.producers, pps[0].p)
+		finalProducers = append(finalProducers, pps[0].p)
 
 		// Keep all producers that are profitable or not removable
 		for _, pp := range pps[1:] {
 			if pp.profit > 0 || !pp.p.IsRemovable() {
 				// Keep producer
-				s.producers = append(s.producers, pp.p)
+				finalProducers = append(finalProducers, pp.p)
 			} else {
 				// Remove producer (by not adding it to s.producers)
-				s.logger.Info("removed producer", slog.Int("tick", s.tick), slog.String("producer", pp.p.String()))
+				l.Info("removed producer", slog.String("producer", pp.p.String()))
 				removedCount++
 			}
 		}
 	}
 
-	// Return number of removed producers
-	return removedCount, nil
+	// Save new producers
+	s.producers = finalProducers
 }
 
 type producerCost struct {
@@ -197,15 +188,15 @@ type producerCost struct {
 	cost float64
 }
 
-func (s *state) spawnNewProducers() error {
+func (s *state) spawnNewProducers(l *slog.Logger) {
 	// Pick a location to spawn the new producer
 	loc := point.Point{
-		X: s.rSrc.Intn(s.xmax-s.xmin) + s.xmin,
-		Y: s.rSrc.Intn(s.ymax-s.ymin) + s.ymin,
+		X: s.randSrc.Intn(s.xmax-s.xmin) + s.xmin,
+		Y: s.randSrc.Intn(s.ymax-s.ymin) + s.ymin,
 	}
 
 	// Select a spec for the new producer
-	spec := s.specs[s.rSrc.Intn(len(s.specs))]
+	spec := s.specs[s.randSrc.Intn(len(s.specs))]
 
 	// Find the cheapest source of each input product
 	sourcedProducts := make(map[string]producerCost)
@@ -224,10 +215,13 @@ func (s *state) spawnNewProducers() error {
 						bestCost = cost
 					}
 				}
+			} else {
+				l.Debug("producer does not produce input", slog.String("producer", p.String()), slog.String("input", input.Name()))
 			}
 		}
 		if bestProducer == nil {
-			return fmt.Errorf("failed to find producer for input product %s", input.String())
+			l.Debug("failed to find producer for input", slog.String("input", input.Name()))
+			return
 		}
 		sourcedProducts[input.Name()] = producerCost{
 			p:    bestProducer,
@@ -237,21 +231,20 @@ func (s *state) spawnNewProducers() error {
 
 	// Check that all products are available
 	if len(sourcedProducts) != len(spec.Inputs()) {
-		return fmt.Errorf("failed to find all input products")
+		l.Error("failed to find all inputs", slog.String("spec", spec.String()))
+		return
 	}
 
 	// Add the new producer
-	fact := factory.New(spec.Name(), loc, spec.Inputs(), spec.Outputs(), spec.Duration())
+	factoryBuilding := factory.New(spec.Name(), loc, spec.Inputs(), spec.Outputs(), spec.Duration())
 	for _, pc := range sourcedProducts {
 		// TODO: This is not ideal, since the seller benefits from the distance
 		// being greater.
 		pc.p.AddProfits(pc.cost)
-		fact.AddProfits(-pc.cost)
+		factoryBuilding.AddProfits(-pc.cost)
 	}
-	s.producers = append(s.producers, fact)
-	s.logger.Info("spawned producer", slog.Int("tick", s.tick), slog.String("producer", fact.String()), slog.Float64("profit", fact.Profit()), slog.Float64("cost", fact.Profit()-fact.Profit()))
-
-	return nil
+	s.producers = append(s.producers, factoryBuilding)
+	l.Info("spawned producer", slog.String("producer", factoryBuilding.String()), slog.Float64("profit", factoryBuilding.Profit()), slog.Float64("cost", factoryBuilding.Profit()-factoryBuilding.Profit()))
 }
 
 // costFunction returns the cost of transporting the given product from the
