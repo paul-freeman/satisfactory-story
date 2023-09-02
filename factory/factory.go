@@ -25,14 +25,12 @@ func New(
 	loc point.Point,
 	input production.Products,
 	output production.Products,
-	duration float64,
 ) *factory {
 	return &factory{
 		name:      name,
 		loc:       loc,
 		input:     input,
 		output:    output,
-		duration:  duration,
 		purchases: make([]*production.Contract, 0),
 		sales:     make([]*production.Contract, 0),
 	}
@@ -59,9 +57,12 @@ func (f *factory) Name() string {
 }
 
 // HasCapacityFor implements producer.
-func (f *factory) HasCapacityFor(p production.Production) error {
-	if !slices.Contains(f.output, p) {
-		return fmt.Errorf("factory %s cannot produce %s", f.String(), p.String())
+func (f *factory) HasCapacityFor(order production.Production) error {
+	if order.Rate <= 0 {
+		return fmt.Errorf("production rate must be positive")
+	}
+	if !slices.Contains(f.output, order) {
+		return fmt.Errorf("factory %s cannot produce %s", f.String(), order.String())
 	}
 	return nil
 }

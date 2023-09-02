@@ -95,7 +95,10 @@ func (ps *Products) UnmarshalJSON(b []byte) error {
 		if err != nil {
 			return fmt.Errorf("failed to parse product count: %w", err)
 		}
-		*ps = append(*ps, New(nameStr, amount, 0))
+		// TODO: Using 1 as the duration is a hack. But we don't know the
+		// manufacturing rate of the product here. So, we set it to one and
+		// later we need to adjust the rate of the product based on the recipe.
+		*ps = append(*ps, New(nameStr, amount, 1))
 	}
 	return nil
 }

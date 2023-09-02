@@ -171,7 +171,7 @@ func (s *state) spawnNewProducers(l *slog.Logger) {
 	}
 
 	// Add the new producer
-	factoryBuilding := factory.New(recipe.Name(), loc, recipe.Inputs(), recipe.Outputs(), recipe.Duration())
+	factoryBuilding := factory.New(recipe.Name(), loc, recipe.Inputs(), recipe.Outputs())
 	for _, pc := range sourcedProducts {
 		// TODO: Decide what to do here
 		_ = pc
@@ -179,6 +179,9 @@ func (s *state) spawnNewProducers(l *slog.Logger) {
 	s.producers = append(s.producers, factoryBuilding)
 	l.Info("spawned producer",
 		slog.String("producer", factoryBuilding.String()),
+		slog.String("recipe", recipe.String()),
+		slog.String("inputs", recipe.Inputs().String()),
+		slog.String("outputs", recipe.Outputs().String()),
 		slog.Float64("profit", factoryBuilding.Profit()),
 		slog.Float64("cost", factoryBuilding.Profit()-factoryBuilding.Profit()),
 	)

@@ -108,6 +108,10 @@ func (r *resource) AcceptSale(contract *production.Contract) error {
 
 // HasCapacityFor implements production.Producer.
 func (r *resource) HasCapacityFor(order production.Production) error {
+	if order.Rate <= 0 {
+		return fmt.Errorf("production rate must be positive")
+	}
+
 	// Check current sales
 	rate := r.Production.Rate
 	for _, sale := range r.sales {
@@ -121,6 +125,9 @@ func (r *resource) HasCapacityFor(order production.Production) error {
 	}
 
 	// Check new order
+	if order.Name != r.Production.Name {
+		return fmt.Errorf("resource %s cannot produce %s", r.String(), order.String())
+	}
 	if rate < order.Rate {
 		return fmt.Errorf("resource %s cannot produce %s at rate %f", r.String(), order.String(), order.Rate)
 	}

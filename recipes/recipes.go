@@ -36,11 +36,37 @@ func New() (Recipes, error) {
 type Recipes []Recipe
 
 type Recipe struct {
+	DisplayName    string
+	ProducedIn     Producer
+	InputProducts  production.Products
+	OutputProducts production.Products
+}
+
+type recipeJSON struct {
 	DisplayName    string              `json:"mDisplayName"`
 	ProducedIn     Producer            `json:"mProducedIn"`
 	InputProducts  production.Products `json:"mIngredients"`
 	OutputProducts production.Products `json:"mProduct"`
 	DurationStr    floatString         `json:"mManufactoringDuration"`
+}
+
+func (j recipeJSON) toRecipe() Recipe {
+	r := Recipe{
+		DisplayName:    j.DisplayName,
+		ProducedIn:     j.ProducedIn,
+		InputProducts:  j.InputProducts,
+		OutputProducts: j.OutputProducts,
+	}
+	// TODO: We update the rate here. We originally set the rate the amount
+	// produced, which is not correct. But now that we know the duration, we can
+	// set the rate correctly.
+	for i := range r.InputProducts {
+		r.InputProducts[i].Rate /= float64(j.DurationStr)
+	}
+	for i := range r.OutputProducts {
+		r.OutputProducts[i].Rate /= float64(j.DurationStr)
+	}
+	return r
 }
 
 type producerCost struct {
@@ -108,10 +134,6 @@ func (r Recipe) Outputs() production.Products {
 	return r.OutputProducts
 }
 
-func (r Recipe) Duration() float64 {
-	return float64(r.DurationStr)
-}
-
 func (rs *Recipes) UnmarshalJSON(b []byte) error {
 	if rs == nil {
 		return fmt.Errorf("cannot unmarshal into nil pointer")
@@ -132,18 +154,18 @@ func (rs *Recipes) UnmarshalJSON(b []byte) error {
 				return fmt.Errorf("failed to unmarshal recipes: %w", err)
 			}
 			for _, tmpRecipe := range tmpRecipes {
-				var r Recipe
-				if err := json.Unmarshal(tmpRecipe, &r); err != nil {
+				var jsonRecipe recipeJSON
+				if err := json.Unmarshal(tmpRecipe, &jsonRecipe); err != nil {
 					return fmt.Errorf("failed to unmarshal recipe: %w", err)
 				}
-				if r.ProducedIn == NullProducer {
+				if jsonRecipe.ProducedIn == NullProducer {
 					continue
-				} else if r.ProducedIn == BuildGun {
+				} else if jsonRecipe.ProducedIn == BuildGun {
 					continue
-				} else if r.ProducedIn == Workshop {
+				} else if jsonRecipe.ProducedIn == Workshop {
 					continue
 				}
-				*rs = append(*rs, r)
+				*rs = append(*rs, jsonRecipe.toRecipe())
 			}
 		}
 	}
