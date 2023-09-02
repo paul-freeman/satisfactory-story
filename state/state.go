@@ -161,48 +161,17 @@ func (s *state) spawnNewProducers(l *slog.Logger) {
 	}
 
 	// Select a recipe for the new producer
-	spec := s.recipes[s.randSrc.Intn(len(s.recipes))]
+	recipe := s.recipes[s.randSrc.Intn(len(s.recipes))]
 
 	// Find the cheapest source of each input product
-	sourcedProducts := make(map[string]producerCost)
-	for _, product := range spec.Inputs() {
-		// Find producers that produce the input product
-		var bestProducer production.Producer
-		var bestCost float64
-		for _, p := range s.producers {
-			err := p.HasCapacityFor(product)
-			if err != nil {
-				l.Debug("producer lacks capacity", slog.String("input", product.Name))
-				continue
-			}
-			if bestProducer == nil {
-				bestProducer = p
-			} else {
-				cost := costFunction(p, loc, product)
-				if cost < bestCost {
-					bestProducer = p
-					bestCost = cost
-				}
-			}
-		}
-		if bestProducer == nil {
-			l.Debug("failed to find producer for input", slog.String("input", product.Name))
-			return
-		}
-		sourcedProducts[product.Name] = producerCost{
-			p:    bestProducer,
-			cost: bestCost,
-		}
-	}
-
-	// Check that all products are available
-	if len(sourcedProducts) != len(spec.Inputs()) {
-		l.Debug("failed to find all inputs", slog.String("spec", spec.String()))
+	sourcedProducts, err := recipe.SourceProducts(s.producers, loc)
+	if err != nil {
+		l.Debug("failed to source all recipe ingredients", slog.String("spec", recipe.String()))
 		return
 	}
 
 	// Add the new producer
-	factoryBuilding := factory.New(spec.Name(), loc, spec.Inputs(), spec.Outputs(), spec.Duration())
+	factoryBuilding := factory.New(recipe.Name(), loc, recipe.Inputs(), recipe.Outputs(), recipe.Duration())
 	for _, pc := range sourcedProducts {
 		// TODO: Decide what to do here
 		_ = pc
@@ -213,10 +182,4 @@ func (s *state) spawnNewProducers(l *slog.Logger) {
 		slog.Float64("profit", factoryBuilding.Profit()),
 		slog.Float64("cost", factoryBuilding.Profit()-factoryBuilding.Profit()),
 	)
-}
-
-// costFunction returns the cost of transporting the given product from the
-// given producer to the given location.
-func costFunction(p production.Producer, loc point.Point, product production.Production) float64 {
-	return loc.Distance(p.Location())
 }

@@ -10,6 +10,7 @@ import (
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 
+	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
 )
 
@@ -40,6 +41,49 @@ type Recipe struct {
 	InputProducts  production.Products `json:"mIngredients"`
 	OutputProducts production.Products `json:"mProduct"`
 	DurationStr    floatString         `json:"mManufactoringDuration"`
+}
+
+type producerCost struct {
+	p    production.Producer
+	cost float64
+}
+
+func (r Recipe) SourceProducts(sellers []production.Producer, location point.Point) (map[string]producerCost, error) {
+	sourcedProducts := make(map[string]producerCost)
+	for _, product := range r.Inputs() {
+		// Find producers that produce the input product
+		var bestProducer production.Producer
+		var bestCost float64
+		for _, p := range sellers {
+			err := p.HasCapacityFor(product)
+			if err != nil {
+				continue
+			}
+			if bestProducer == nil {
+				bestProducer = p
+			} else {
+				cost := costFunction(p, location, product)
+				if cost < bestCost {
+					bestProducer = p
+					bestCost = cost
+				}
+			}
+		}
+		if bestProducer == nil {
+			return nil, fmt.Errorf("failed to find producer for input %s", product.Name)
+		}
+		sourcedProducts[product.Name] = producerCost{
+			p:    bestProducer,
+			cost: bestCost,
+		}
+	}
+
+	// Check that all products are available
+	if len(sourcedProducts) != len(r.Inputs()) {
+		return nil, fmt.Errorf("failed to find all inputs for %s", r.String())
+	}
+
+	return sourcedProducts, nil
 }
 
 func (r Recipe) Name() string {
@@ -122,4 +166,10 @@ func (f *floatString) UnmarshalJSON(b []byte) error {
 	}
 	*f = floatString(fl)
 	return nil
+}
+
+// costFunction returns the cost of transporting the given product from the
+// given producer to the given location.
+func costFunction(p production.Producer, loc point.Point, product production.Production) float64 {
+	return loc.Distance(p.Location())
 }
