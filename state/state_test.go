@@ -19,13 +19,13 @@ func Test_state_Tick(t *testing.T) {
 		assert.NoError(t, err, "failed to create state")
 		for _, producer := range testState.producers {
 			for _, product := range producer.Products() {
-				if product.Name() == "sam" || product.Name() == "geyser" {
+				if product.Name == "sam" || product.Name == "geyser" {
 					continue
 				}
 				// Check that the product is in at least one recipe
 				found := false
-				for _, spec := range testState.specs {
-					if spec.Inputs().Contains(product.Name()) {
+				for _, recipe := range testState.recipes {
+					if recipe.Inputs().Contains(product.Name) {
 						found = true
 						break
 					}
@@ -33,14 +33,14 @@ func Test_state_Tick(t *testing.T) {
 				if !found {
 					t.Fail()
 					// Look for something similar for debugging
-					for _, spec := range testState.specs {
-						for _, input := range spec.Inputs() {
-							if strings.Contains(strings.ToLower(input.Name()), strings.ToLower(product.Name())) {
-								t.Fatalf("product %s not in any recipe: found %s instead", product.Name(), input)
+					for _, recipe := range testState.recipes {
+						for _, input := range recipe.Inputs() {
+							if strings.Contains(strings.ToLower(input.Name), strings.ToLower(product.Name)) {
+								t.Fatalf("product %s not in any recipe: found %s instead", product.Name, input)
 							}
 						}
 					}
-					t.Fatalf("product %s not in any recipe", product.Name())
+					t.Fatalf("product %s not in any recipe", product.Name)
 				}
 			}
 		}

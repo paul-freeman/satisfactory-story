@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/paul-freeman/satisfactory-story/point"
-	"github.com/paul-freeman/satisfactory-story/products"
+	"github.com/paul-freeman/satisfactory-story/production"
 )
 
 //go:embed Resource.json
@@ -28,10 +28,10 @@ type resourceData struct {
 }
 
 type resource struct {
-	Product products.Product
-	Purity  purity
-	Loc     point.Point
-	profit  float64
+	Production production.Production
+	Purity     purity
+	Loc        point.Point
+	sales      []*production.Contract
 }
 
 func New() ([]*resource, error) {
@@ -62,21 +62,17 @@ func New() ([]*resource, error) {
 		}
 		name = toCanonicalName(name)
 		resources[i] = &resource{
-			Product: products.New(name, 1, rate/60.0),
-			Purity:  purity,
-			Loc:     point.Point{X: int(data.Longitude * 100), Y: int(data.Latitude * 100)},
+			Production: production.New(name, 1, rate/60.0),
+			Purity:     purity,
+			Loc:        point.Point{X: int(data.Longitude * 100), Y: int(data.Latitude * 100)},
 		}
 	}
 
 	return resources, nil
 }
 
-func (r *resource) Name() string {
-	return string(r.Product.Name())
-}
-
 func (r *resource) String() string {
-	return fmt.Sprintf("%s (%s) @ %s", r.Name(), r.Purity, r.Loc.String())
+	return fmt.Sprintf("Resource %s (%s) @ %s", r.Production.Name, r.Purity, r.Loc.String())
 }
 
 func (r *resource) Location() point.Point {
@@ -91,17 +87,47 @@ func (r *resource) IsRemovable() bool {
 	return false
 }
 
-func (r *resource) Products() products.Products {
-	return products.Products{r.Product}
+func (r *resource) Products() production.Products {
+	return production.Products{r.Production}
 }
 
 func (r resource) Profit() float64 {
 	return 0.0
 }
 
-func (r *resource) HasProduct(p products.Product) bool {
-	return r.Product.Name() == p.Name()
+// AcceptsPurchase implements production.Producer.
+func (r *resource) AcceptPurchase(_ *production.Contract) error {
+	return fmt.Errorf("resource %s cannot make purchases", r.String())
 }
+
+// AcceptsSale implements production.Producer.
+func (r *resource) AcceptSale(contract *production.Contract) error {
+	r.sales = append(r.sales, contract)
+	return nil
+}
+
+// HasCapacityFor implements production.Producer.
+func (r *resource) HasCapacityFor(order production.Production) error {
+	// Check current sales
+	rate := r.Production.Rate
+	for _, sale := range r.sales {
+		if sale.Cancelled {
+			continue
+		}
+		if sale.Order.Name != r.Production.Name || order.Name != r.Production.Name {
+			continue
+		}
+		rate -= sale.Order.Rate
+	}
+
+	// Check new order
+	if rate < order.Rate {
+		return fmt.Errorf("resource %s cannot produce %s at rate %f", r.String(), order.String(), order.Rate)
+	}
+	return nil
+}
+
+var _ production.Producer = (*resource)(nil)
 
 func toCanonicalName(name string) string {
 	switch name {

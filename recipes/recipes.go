@@ -10,7 +10,7 @@ import (
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 
-	"github.com/paul-freeman/satisfactory-story/products"
+	"github.com/paul-freeman/satisfactory-story/production"
 )
 
 //go:embed Docs.json
@@ -20,10 +20,10 @@ const (
 	fgRecipe = "/Script/CoreUObject.Class'/Script/FactoryGame.FGRecipe'"
 )
 
-func New() (recipes, error) {
+func New() (Recipes, error) {
 	utf16Transformer := unicode.UTF16(unicode.LittleEndian, unicode.ExpectBOM).NewDecoder()
 
-	var rs recipes
+	var rs Recipes
 	r := bytes.NewReader(docsJson)
 	if err := json.NewDecoder(transform.NewReader(r, utf16Transformer)).Decode(&rs); err != nil {
 		return nil, fmt.Errorf("failed to decode: %w", err)
@@ -32,21 +32,21 @@ func New() (recipes, error) {
 	return rs, nil
 }
 
-type recipes []recipe
+type Recipes []Recipe
 
-type recipe struct {
-	DisplayName    string            `json:"mDisplayName"`
-	ProducedIn     Producer          `json:"mProducedIn"`
-	InputProducts  products.Products `json:"mIngredients"`
-	OutputProducts products.Products `json:"mProduct"`
-	DurationStr    floatString       `json:"mManufactoringDuration"`
+type Recipe struct {
+	DisplayName    string              `json:"mDisplayName"`
+	ProducedIn     Producer            `json:"mProducedIn"`
+	InputProducts  production.Products `json:"mIngredients"`
+	OutputProducts production.Products `json:"mProduct"`
+	DurationStr    floatString         `json:"mManufactoringDuration"`
 }
 
-func (r recipe) Name() string {
+func (r Recipe) Name() string {
 	return r.DisplayName
 }
 
-func (r recipe) String() string {
+func (r Recipe) String() string {
 	return fmt.Sprintf(
 		"%s (%s) %s => %s",
 		r.Name(),
@@ -56,19 +56,19 @@ func (r recipe) String() string {
 	)
 }
 
-func (r recipe) Inputs() products.Products {
+func (r Recipe) Inputs() production.Products {
 	return r.InputProducts
 }
 
-func (r recipe) Outputs() products.Products {
+func (r Recipe) Outputs() production.Products {
 	return r.OutputProducts
 }
 
-func (r recipe) Duration() float64 {
+func (r Recipe) Duration() float64 {
 	return float64(r.DurationStr)
 }
 
-func (rs *recipes) UnmarshalJSON(b []byte) error {
+func (rs *Recipes) UnmarshalJSON(b []byte) error {
 	if rs == nil {
 		return fmt.Errorf("cannot unmarshal into nil pointer")
 	}
@@ -88,7 +88,7 @@ func (rs *recipes) UnmarshalJSON(b []byte) error {
 				return fmt.Errorf("failed to unmarshal recipes: %w", err)
 			}
 			for _, tmpRecipe := range tmpRecipes {
-				var r recipe
+				var r Recipe
 				if err := json.Unmarshal(tmpRecipe, &r); err != nil {
 					return fmt.Errorf("failed to unmarshal recipe: %w", err)
 				}

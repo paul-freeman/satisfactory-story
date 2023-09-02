@@ -1,12 +1,35 @@
-package products
+package production
 
 import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/paul-freeman/satisfactory-story/point"
 )
 
-type Products []Product
+// Producer is a type that can be used to produce a resource
+type Producer interface {
+	// Location returns the location of the producer.
+	Location() point.Point
+	// IsMovable returns true if the producer can be moved.
+	IsMovable() bool
+	// IsRemovable returns true if the producer can be removed.
+	IsRemovable() bool
+	// Products returns the products that the producer produces.
+	Products() Products
+	// Profit returns the profit of the producer.
+	Profit() float64
+	// HasCapacityFor returns true if the producer produces the given product at the
+	// given rate.
+	HasCapacityFor(Production) error
+	// AcceptSale acknowledges that the producer will sell a product.
+	AcceptSale(*Contract) error
+	// AcceptPurchase acknowledges that the producer will purchase a product.
+	AcceptPurchase(*Contract) error
+}
+
+type Products []Production
 
 func (ps Products) String() string {
 	strs := make([]string, len(ps))
@@ -18,7 +41,7 @@ func (ps Products) String() string {
 
 func (ps Products) Contains(name string) bool {
 	for _, p := range ps {
-		if p.name == name {
+		if p.Name == name {
 			return true
 		}
 	}
@@ -35,7 +58,7 @@ func (ps *Products) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("failed to trim first quote and parenthesis: %w", err)
 	}
 	products := splitParenthesisGroups(rawString)
-	*ps = make([]Product, 0, len(products))
+	*ps = make([]Production, 0, len(products))
 	for _, p := range products {
 
 		// Check for empty product
@@ -72,10 +95,7 @@ func (ps *Products) UnmarshalJSON(b []byte) error {
 		if err != nil {
 			return fmt.Errorf("failed to parse product count: %w", err)
 		}
-		*ps = append(*ps, Product{
-			name:   nameStr,
-			amount: amount,
-		})
+		*ps = append(*ps, New(nameStr, amount, 0))
 	}
 	return nil
 }
