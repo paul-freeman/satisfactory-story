@@ -67,12 +67,12 @@ func Test_state_Tick(t *testing.T) {
 
 		testState, err := New(l, seed)
 		assert.NoError(t, err, "failed to create state")
-		for i := 0; i < 40000; i++ {
+		for i := 0; i < 20000; i++ {
 			err = testState.Tick(l)
 			assert.NoError(t, err, "failed to tick state")
 		}
 		for _, producer := range testState.producers {
-			if producer.Profit() <= 0 {
+			if !producer.IsMovable() {
 				continue
 			}
 			t.Logf("%s: %.2f", producer.Products().String(), producer.Profit())

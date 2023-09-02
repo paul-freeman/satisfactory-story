@@ -64,7 +64,8 @@ func (f *Factory) Location() point.Point {
 
 // SalesPriceFor implements producer.
 func (f *Factory) SalesPriceFor(order production.Production, transportCost float64) float64 {
-	return 0.0
+	// TODO: This needs work
+	return transportCost * 1.2
 }
 
 // HasCapacityFor implements producer.
