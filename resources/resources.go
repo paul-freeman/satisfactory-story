@@ -88,12 +88,29 @@ func (r *Resource) IsRemovable() bool {
 	return false
 }
 
+func (r *Resource) Remove() error {
+	return fmt.Errorf("resource %s cannot be removed", r.String())
+}
+
 func (r *Resource) Products() production.Products {
 	return production.Products{r.Production}
 }
 
 func (r Resource) Profit() float64 {
-	return 0.0
+	profit := 0.0
+
+	// Review sales
+	newSales := make([]*production.Contract, 0)
+	for _, sale := range r.sales {
+		if !sale.Cancelled {
+			profit += sale.ProductCost
+			profit -= (sale.TransportCost / 2)
+			newSales = append(newSales, sale)
+		}
+	}
+	r.sales = newSales
+
+	return profit
 }
 
 // SignAsBuyer implements production.Producer.
@@ -105,6 +122,11 @@ func (r *Resource) SignAsBuyer(_ *production.Contract) error {
 func (r *Resource) SignAsSeller(contract *production.Contract) error {
 	r.sales = append(r.sales, contract)
 	return nil
+}
+
+// SalesPriceFor implements production.Producer.
+func (r *Resource) SalesPriceFor(order production.Production, transportCost float64) float64 {
+	return transportCost * 1.2
 }
 
 // HasCapacityFor implements production.Producer.

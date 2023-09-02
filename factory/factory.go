@@ -46,9 +46,25 @@ func (f *Factory) IsRemovable() bool {
 	return true
 }
 
+// Remove implements producer.
+func (f *Factory) Remove() error {
+	for _, sale := range f.sales {
+		sale.Cancel()
+	}
+	for _, purchase := range f.purchases {
+		purchase.Cancel()
+	}
+	return nil
+}
+
 // Location implements producer.
 func (f *Factory) Location() point.Point {
 	return f.loc
+}
+
+// SalesPriceFor implements producer.
+func (f *Factory) SalesPriceFor(order production.Production, transportCost float64) float64 {
+	return 0.0
 }
 
 // HasCapacityFor implements producer.
@@ -70,12 +86,27 @@ func (f *Factory) Products() production.Products {
 // Profit implements producer.
 func (f *Factory) Profit() float64 {
 	profit := 0.0
+
+	// Review sales
+	newSales := make([]*production.Contract, 0)
 	for _, sale := range f.sales {
-		profit += sale.Price
+		if !sale.Cancelled {
+			profit += sale.TransportCost
+			newSales = append(newSales, sale)
+		}
 	}
+	f.sales = newSales
+
+	// Review purchases
+	newPurchases := make([]*production.Contract, 0)
 	for _, purchase := range f.purchases {
-		profit -= purchase.Price
+		if !purchase.Cancelled {
+			profit -= purchase.TransportCost
+			newPurchases = append(newPurchases, purchase)
+		}
 	}
+	f.purchases = newPurchases
+
 	return profit
 }
 

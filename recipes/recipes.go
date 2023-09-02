@@ -69,38 +69,40 @@ func (j recipeJSON) toRecipe() Recipe {
 	return r
 }
 
-type producerCost struct {
-	p    production.Producer
-	cost float64
+type Source struct {
+	Order         production.Production
+	Seller        production.Producer
+	TransportCost float64
 }
 
-func (r Recipe) SourceProducts(sellers []production.Producer, location point.Point) (map[string]producerCost, error) {
-	sourcedProducts := make(map[string]producerCost)
-	for _, product := range r.Inputs() {
+func (r Recipe) SourceProducts(sellers []production.Producer, destination point.Point) (map[string]Source, error) {
+	sourcedProducts := make(map[string]Source)
+	for _, order := range r.Inputs() {
 		// Find producers that produce the input product
 		var bestProducer production.Producer
 		var bestCost float64
-		for _, p := range sellers {
-			err := p.HasCapacityFor(product)
+		for _, seller := range sellers {
+			err := seller.HasCapacityFor(order)
 			if err != nil {
 				continue
 			}
+			origin := seller.Location()
+			cost := TransportCost(origin, destination)
 			if bestProducer == nil {
-				bestProducer = p
-			} else {
-				cost := costFunction(p, location, product)
-				if cost < bestCost {
-					bestProducer = p
-					bestCost = cost
-				}
+				bestProducer = seller
+				bestCost = TransportCost(seller.Location(), destination)
+			} else if cost < bestCost {
+				bestProducer = seller
+				bestCost = cost
 			}
 		}
 		if bestProducer == nil {
-			return nil, fmt.Errorf("failed to find producer for input %s", product.Name)
+			return nil, fmt.Errorf("failed to find producer for input %s", order.Name)
 		}
-		sourcedProducts[product.Name] = producerCost{
-			p:    bestProducer,
-			cost: bestCost,
+		sourcedProducts[order.Name] = Source{
+			Order:         order,
+			Seller:        bestProducer,
+			TransportCost: bestCost,
 		}
 	}
 
@@ -190,8 +192,8 @@ func (f *floatString) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// costFunction returns the cost of transporting the given product from the
+// TransportCost returns the cost of transporting the given product from the
 // given producer to the given location.
-func costFunction(p production.Producer, loc point.Point, product production.Production) float64 {
-	return loc.Distance(p.Location())
+func TransportCost(origin point.Point, destination point.Point) float64 {
+	return origin.Distance(destination)
 }

@@ -16,13 +16,17 @@ type Producer interface {
 	IsMovable() bool
 	// IsRemovable returns true if the producer can be removed.
 	IsRemovable() bool
+	// Remove removes the producer.
+	Remove() error
 	// Products returns the products that the producer produces.
 	Products() Products
 	// Profit returns the profit of the producer.
 	Profit() float64
-	// HasCapacityFor returns true if the producer produces the given product at the
-	// given rate.
+	// HasCapacityFor returns true if the producer produces the given product at
+	// the given rate.
 	HasCapacityFor(Production) error
+	// SalesPriceFor returns the price of the given product and transport cost.
+	SalesPriceFor(Production, float64) float64
 	// SignAsSeller acknowledges that the producer will sell a product.
 	SignAsSeller(*Contract) error
 	// SignAsBuyer acknowledges that the producer will purchase a product.

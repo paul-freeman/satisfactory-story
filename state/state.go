@@ -18,6 +18,7 @@ const borderMultiplier = 1.1
 type state struct {
 	producers []production.Producer
 	recipes   recipes.Recipes
+	market    map[string]float64
 
 	seed int64
 	tick int
@@ -72,6 +73,7 @@ func New(l *slog.Logger, seed int64) (*state, error) {
 	return &state{
 		producers: producers,
 		recipes:   recipes,
+		market:    make(map[string]float64),
 
 		tick: 0,
 
@@ -126,7 +128,6 @@ func (s *state) removeUnprofitableProducers(l *slog.Logger) {
 	}
 
 	// Remove unprofitable producers
-	removedCount := 0
 	finalProducers := make([]production.Producer, 0, len(s.producers))
 	for _, pps := range groupedStats {
 		// Keep the most profitable producer
@@ -138,8 +139,16 @@ func (s *state) removeUnprofitableProducers(l *slog.Logger) {
 				// Keep producer
 				finalProducers = append(finalProducers, pp.p)
 			} else {
-				// Remove producer (by not adding it to s.producers)
-				removedCount++
+				pp.p.Remove()
+				f, ok := pp.p.(*factory.Factory)
+				if !ok {
+					l.Error("removed non-factory producer")
+				} else {
+					l.Debug("removed producer",
+						slog.String("factory", f.Name),
+						slog.Float64("profit", pp.profit),
+					)
+				}
 			}
 		}
 	}
@@ -164,25 +173,71 @@ func (s *state) spawnNewProducers(l *slog.Logger) {
 	recipe := s.recipes[s.randSrc.Intn(len(s.recipes))]
 
 	// Find the cheapest source of each input product
-	sourcedProducts, err := recipe.SourceProducts(s.producers, loc)
+	sources, err := recipe.SourceProducts(s.producers, loc)
 	if err != nil {
 		l.Debug("failed to source all recipe ingredients", slog.String("spec", recipe.String()))
 		return
 	}
 
 	// Add the new producer
-	factoryBuilding := factory.New(recipe.Name(), loc, recipe.Inputs(), recipe.Outputs())
-	for _, pc := range sourcedProducts {
-		// TODO: Decide what to do here
-		_ = pc
+	newFactory := factory.New(recipe.Name(), loc, recipe.Inputs(), recipe.Outputs())
+	for _, source := range sources {
+		s.WriteContract(l, source.Seller, newFactory, source.Order, source.TransportCost)
 	}
-	s.producers = append(s.producers, factoryBuilding)
-	l.Info("spawned producer",
-		slog.String("producer", factoryBuilding.String()),
-		slog.String("recipe", recipe.String()),
-		slog.String("inputs", recipe.Inputs().String()),
-		slog.String("outputs", recipe.Outputs().String()),
-		slog.Float64("profit", factoryBuilding.Profit()),
-		slog.Float64("cost", factoryBuilding.Profit()-factoryBuilding.Profit()),
+	s.producers = append(s.producers, newFactory)
+	l.Debug("spawned producer",
+		slog.String("factory", newFactory.Name),
+		slog.Float64("profit", newFactory.Profit()),
 	)
+}
+
+func (s *state) WriteContract(
+	l *slog.Logger,
+	seller production.Producer,
+	buyer production.Producer,
+	order production.Production,
+	transportCost float64,
+) error {
+	if err := seller.HasCapacityFor(order); err != nil {
+		return fmt.Errorf("cannot sign contract: %w", err)
+	}
+
+	// Calculate costs of existing contracts
+	salesPrice := seller.SalesPriceFor(order, transportCost)
+
+	// Check market price
+	marketPrice, ok := s.market[order.Name]
+	if !ok || salesPrice < marketPrice {
+		s.market[order.Name] = salesPrice
+	} else {
+		salesPrice = marketPrice
+	}
+
+	// Create contract
+	contract := &production.Contract{
+		Seller:        seller,
+		Buyer:         buyer,
+		Order:         order,
+		TransportCost: transportCost,
+		ProductCost:   salesPrice,
+	}
+
+	// Sign contract
+	if err := seller.SignAsSeller(contract); err != nil {
+		contract.Cancel()
+		return fmt.Errorf("seller rejected contract: %w", err)
+	}
+	if err := buyer.SignAsBuyer(contract); err != nil {
+		contract.Cancel()
+		return fmt.Errorf("buyer rejected contract: %w", err)
+	}
+
+	// Log contract
+	l.Debug("signed contract",
+		slog.String("order", order.String()),
+		slog.Float64("transportCost", transportCost),
+		slog.Float64("productCost", salesPrice),
+	)
+
+	return nil
 }
