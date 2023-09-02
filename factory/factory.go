@@ -62,10 +62,18 @@ func (f *Factory) Location() point.Point {
 	return f.loc
 }
 
-// SalesPriceFor implements producer.
+// SalesPriceFor is the price of a sale.
+//
+// For a factory, this is the sum of the purchase prices plus the transport
+// cost. All of this is marked up by 50%
 func (f *Factory) SalesPriceFor(order production.Production, transportCost float64) float64 {
-	// TODO: This needs work
-	return transportCost * 1.2
+	purchaseCosts := 0.0
+	for _, purchase := range f.purchases {
+		if !purchase.Cancelled {
+			purchaseCosts += purchase.ProductCost
+		}
+	}
+	return (purchaseCosts + transportCost) * 1.50 // 50% profit
 }
 
 // HasCapacityFor implements producer.
@@ -113,7 +121,7 @@ func (f *Factory) Profit() float64 {
 
 // String implements producer.
 func (f *Factory) String() string {
-	return fmt.Sprintf("%s @ %s", f.Name, f.loc.String())
+	return fmt.Sprintf("%s [%s]+>[%s]", f.Name, f.input.String(), f.output.String())
 }
 
 // SignAsBuyer implements production.Producer.

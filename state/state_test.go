@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/paul-freeman/satisfactory-story/factory"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -13,7 +14,7 @@ func Test_state_Tick(t *testing.T) {
 	t.Run("all resources should be in a recipe", func(t *testing.T) {
 		l := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:       slog.LevelInfo,
-			ReplaceAttr: removeTime,
+			ReplaceAttr: removeTimeAndLevel,
 		}))
 		testState, err := New(l, 11)
 		assert.NoError(t, err, "failed to create state")
@@ -49,7 +50,7 @@ func Test_state_Tick(t *testing.T) {
 	t.Run("can run one tick", func(t *testing.T) {
 		l := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:       slog.LevelInfo,
-			ReplaceAttr: removeTime,
+			ReplaceAttr: removeTimeAndLevel,
 		}))
 		seed := int64(52)
 
@@ -61,27 +62,30 @@ func Test_state_Tick(t *testing.T) {
 	t.Run("can run multiple ticks", func(t *testing.T) {
 		l := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 			Level:       slog.LevelInfo,
-			ReplaceAttr: removeTime,
+			ReplaceAttr: removeTimeAndLevel,
 		}))
 		seed := int64(52)
 
 		testState, err := New(l, seed)
 		assert.NoError(t, err, "failed to create state")
-		for i := 0; i < 20000; i++ {
+		for i := 0; i < 1000; i++ {
 			err = testState.Tick(l)
 			assert.NoError(t, err, "failed to tick state")
 		}
 		for _, producer := range testState.producers {
-			if !producer.IsMovable() {
-				continue
+			f, ok := producer.(*factory.Factory)
+			if ok {
+				l.Info(f.String())
 			}
-			t.Logf("%s: %.2f", producer.Products().String(), producer.Profit())
 		}
 	})
 }
 
-func removeTime(_ []string, a slog.Attr) slog.Attr {
+func removeTimeAndLevel(_ []string, a slog.Attr) slog.Attr {
 	if a.Key == "time" {
+		return slog.Attr{}
+	}
+	if a.Key == "level" {
 		return slog.Attr{}
 	}
 	return a

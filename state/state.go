@@ -241,3 +241,12 @@ func (s *state) WriteContract(
 
 	return nil
 }
+
+func (s *state) ListFactories(l *slog.Logger) {
+	for _, producer := range s.producers {
+		f, ok := producer.(*factory.Factory)
+		if ok {
+			l.Info(f.String())
+		}
+	}
+}

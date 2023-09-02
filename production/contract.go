@@ -14,8 +14,8 @@ type Contract struct {
 	Order Production
 	// ProductCost is the price of the product.
 	ProductCost float64
-	// TransportCost is the price of transporting the product. This cost is
-	// split between the buyer and the seller.
+	// TransportCost is the price of transporting the product. Both the seller
+	// and the buyer pay the transport cost.
 	TransportCost float64
 	// Cancelled is true if the contract has been cancelled.
 	Cancelled bool

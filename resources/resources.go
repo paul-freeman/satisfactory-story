@@ -104,7 +104,7 @@ func (r Resource) Profit() float64 {
 	for _, sale := range r.sales {
 		if !sale.Cancelled {
 			profit += sale.ProductCost
-			profit -= (sale.TransportCost / 2)
+			profit -= sale.TransportCost
 			newSales = append(newSales, sale)
 		}
 	}
@@ -124,9 +124,12 @@ func (r *Resource) SignAsSeller(contract *production.Contract) error {
 	return nil
 }
 
-// SalesPriceFor implements production.Producer.
+// SalesPriceFor computes the price of a sale.
+//
+// For resources, this is the transport cost plus 50%. This is very simple due
+// to the fact that resources do not rely on purchasing other products.
 func (r *Resource) SalesPriceFor(order production.Production, transportCost float64) float64 {
-	return transportCost * 1.2
+	return transportCost * 1.50 // 50% profit
 }
 
 // HasCapacityFor implements production.Producer.
