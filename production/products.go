@@ -22,6 +22,8 @@ type Producer interface {
 	Products() Products
 	// Profit returns the profit of the producer.
 	Profit() float64
+	// Profitability returns the profitability of the producer.
+	Profitability() float64
 	// HasCapacityFor returns true if the producer produces the given product at
 	// the given rate.
 	HasCapacityFor(Production) error
@@ -31,6 +33,9 @@ type Producer interface {
 	SignAsSeller(*Contract) error
 	// SignAsBuyer acknowledges that the producer will purchase a product.
 	SignAsBuyer(*Contract) error
+	// ContractsIn returns the active contracts that deliver products to the
+	// producer.
+	ContractsIn() []*Contract
 }
 
 type Products []Production

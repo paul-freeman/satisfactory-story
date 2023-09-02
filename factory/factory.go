@@ -119,6 +119,24 @@ func (f *Factory) Profit() float64 {
 	return profit
 }
 
+func (f *Factory) Profitability() float64 {
+	income := 0.0
+	expenses := 0.0
+	for _, sale := range f.sales {
+		if !sale.Cancelled {
+			income += sale.ProductCost
+			expenses += sale.TransportCost
+		}
+	}
+	for _, purchase := range f.purchases {
+		if !purchase.Cancelled {
+			expenses += purchase.ProductCost
+			expenses += purchase.TransportCost
+		}
+	}
+	return income / expenses
+}
+
 // String implements producer.
 func (f *Factory) String() string {
 	return fmt.Sprintf("%s [%s]+>[%s]", f.Name, f.input.String(), f.output.String())
@@ -134,6 +152,11 @@ func (f *Factory) SignAsBuyer(contract *production.Contract) error {
 func (f *Factory) SignAsSeller(contract *production.Contract) error {
 	f.sales = append(f.sales, contract)
 	return nil
+}
+
+// ContractsIn implements production.Producer.
+func (f *Factory) ContractsIn() []*production.Contract {
+	return f.purchases
 }
 
 var _ production.Producer = (*Factory)(nil)

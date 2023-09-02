@@ -113,6 +113,18 @@ func (r Resource) Profit() float64 {
 	return profit
 }
 
+func (r Resource) Profitability() float64 {
+	income := 0.0
+	expenses := 0.0
+	for _, sale := range r.sales {
+		if !sale.Cancelled {
+			income += sale.ProductCost
+			expenses += sale.TransportCost
+		}
+	}
+	return income / expenses
+}
+
 // SignAsBuyer implements production.Producer.
 func (r *Resource) SignAsBuyer(_ *production.Contract) error {
 	return fmt.Errorf("resource %s cannot make purchases", r.String())
@@ -158,6 +170,11 @@ func (r *Resource) HasCapacityFor(order production.Production) error {
 		return fmt.Errorf("resource %s cannot produce %s at rate %f", r.String(), order.String(), order.Rate)
 	}
 	return nil
+}
+
+// ContractsIn implements production.Producer.
+func (r *Resource) ContractsIn() []*production.Contract {
+	return []*production.Contract{}
 }
 
 var _ production.Producer = (*Resource)(nil)

@@ -11,6 +11,7 @@ import (
 	"github.com/paul-freeman/satisfactory-story/production"
 	"github.com/paul-freeman/satisfactory-story/recipes"
 	"github.com/paul-freeman/satisfactory-story/resources"
+	"github.com/paul-freeman/satisfactory-story/state/http"
 )
 
 const borderMultiplier = 1.1
@@ -248,5 +249,53 @@ func (s *state) ListFactories(l *slog.Logger) {
 		if ok {
 			l.Info(f.String())
 		}
+	}
+}
+
+func (s *state) toHTTP() http.State {
+	factories := make([]http.Factory, 0)
+	transports := make([]http.Transport, 0)
+	for _, producer := range s.producers {
+		// List producer products
+		products := make([]string, 0)
+		for _, product := range producer.Products() {
+			products = append(products, product.Name)
+		}
+
+		// Append factory with list of products
+		factory := http.Factory{
+			Location: http.Location{
+				X: producer.Location().X,
+				Y: producer.Location().Y,
+			},
+			Products:      products,
+			Profitability: producer.Profitability(),
+		}
+		factories = append(factories, factory)
+
+		// List incoming transports
+		for _, contract := range producer.ContractsIn() {
+			transport := http.Transport{
+				Origin: http.Location{
+					X: contract.Seller.Location().X,
+					Y: contract.Seller.Location().Y,
+				},
+				Destination: http.Location{
+					X: contract.Buyer.Location().X,
+					Y: contract.Buyer.Location().Y,
+				},
+				Rate: contract.Order.Rate,
+			}
+			transports = append(transports, transport)
+		}
+	}
+	return http.State{
+		Factories:  factories,
+		Transports: transports,
+		Tick:       s.tick,
+		Xmin:       s.xmin,
+		Xmax:       s.xmax,
+		Ymin:       s.ymin,
+		Ymax:       s.ymax,
 	}
 }
