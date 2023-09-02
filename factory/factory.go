@@ -8,8 +8,8 @@ import (
 	"github.com/paul-freeman/satisfactory-story/production"
 )
 
-type factory struct {
-	name string
+type Factory struct {
+	Name string
 	loc  point.Point
 
 	input    production.Products
@@ -25,9 +25,9 @@ func New(
 	loc point.Point,
 	input production.Products,
 	output production.Products,
-) *factory {
-	return &factory{
-		name:      name,
+) *Factory {
+	return &Factory{
+		Name:      name,
 		loc:       loc,
 		input:     input,
 		output:    output,
@@ -37,27 +37,22 @@ func New(
 }
 
 // IsMovable implements producer.
-func (f *factory) IsMovable() bool {
+func (f *Factory) IsMovable() bool {
 	return true
 }
 
 // IsRemovable implements producer.
-func (f *factory) IsRemovable() bool {
+func (f *Factory) IsRemovable() bool {
 	return true
 }
 
 // Location implements producer.
-func (f *factory) Location() point.Point {
+func (f *Factory) Location() point.Point {
 	return f.loc
 }
 
-// Name implements producer.
-func (f *factory) Name() string {
-	return f.name
-}
-
 // HasCapacityFor implements producer.
-func (f *factory) HasCapacityFor(order production.Production) error {
+func (f *Factory) HasCapacityFor(order production.Production) error {
 	if order.Rate <= 0 {
 		return fmt.Errorf("production rate must be positive")
 	}
@@ -68,12 +63,12 @@ func (f *factory) HasCapacityFor(order production.Production) error {
 }
 
 // Products implements producer.
-func (f *factory) Products() production.Products {
+func (f *Factory) Products() production.Products {
 	return f.output
 }
 
 // Profit implements producer.
-func (f *factory) Profit() float64 {
+func (f *Factory) Profit() float64 {
 	profit := 0.0
 	for _, sale := range f.sales {
 		profit += sale.Price
@@ -85,20 +80,20 @@ func (f *factory) Profit() float64 {
 }
 
 // String implements producer.
-func (f *factory) String() string {
-	return fmt.Sprintf("%s @ %s", f.name, f.loc.String())
+func (f *Factory) String() string {
+	return fmt.Sprintf("%s @ %s", f.Name, f.loc.String())
 }
 
-// AcceptPurchase implements production.Producer.
-func (f *factory) AcceptPurchase(contract *production.Contract) error {
+// SignAsBuyer implements production.Producer.
+func (f *Factory) SignAsBuyer(contract *production.Contract) error {
 	f.purchases = append(f.purchases, contract)
 	return nil
 }
 
-// AcceptSale implements production.Producer.
-func (f *factory) AcceptSale(contract *production.Contract) error {
+// SignAsSeller implements production.Producer.
+func (f *Factory) SignAsSeller(contract *production.Contract) error {
 	f.sales = append(f.sales, contract)
 	return nil
 }
 
-var _ production.Producer = (*factory)(nil)
+var _ production.Producer = (*Factory)(nil)

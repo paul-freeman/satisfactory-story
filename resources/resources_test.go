@@ -49,7 +49,7 @@ func Test_resource_HasCapacityFor(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := &resource{
+			r := &Resource{
 				Production: tt.fields.Production,
 				Purity:     tt.fields.Purity,
 				Loc:        tt.fields.Loc,

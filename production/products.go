@@ -23,10 +23,10 @@ type Producer interface {
 	// HasCapacityFor returns true if the producer produces the given product at the
 	// given rate.
 	HasCapacityFor(Production) error
-	// AcceptSale acknowledges that the producer will sell a product.
-	AcceptSale(*Contract) error
-	// AcceptPurchase acknowledges that the producer will purchase a product.
-	AcceptPurchase(*Contract) error
+	// SignAsSeller acknowledges that the producer will sell a product.
+	SignAsSeller(*Contract) error
+	// SignAsBuyer acknowledges that the producer will purchase a product.
+	SignAsBuyer(*Contract) error
 }
 
 type Products []Production

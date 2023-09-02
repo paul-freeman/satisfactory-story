@@ -19,6 +19,7 @@ func Test_state_Tick(t *testing.T) {
 		assert.NoError(t, err, "failed to create state")
 		for _, producer := range testState.producers {
 			for _, product := range producer.Products() {
+				// TODO: What do these products do?
 				if product.Name == "sam" || product.Name == "geyser" {
 					continue
 				}
