@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand"
 	"net/http"
 	"sort"
@@ -17,7 +18,7 @@ import (
 	statehttp "github.com/paul-freeman/satisfactory-story/state/http"
 )
 
-const borderMultiplier = 1.1
+const borderPaddingPct = 0.1
 
 type State struct {
 	m sync.Mutex
@@ -49,10 +50,10 @@ func New(l *slog.Logger, seed int64) (*State, error) {
 	}
 
 	// Find resource location bounds
-	xmin := 0
-	xmax := 0
-	ymin := 0
-	ymax := 0
+	xmin := resources[0].Location().X
+	xmax := resources[0].Location().X
+	ymin := resources[0].Location().Y
+	ymax := resources[0].Location().Y
 	for _, resource := range resources {
 		loc := resource.Location()
 		if loc.X < xmin {
@@ -75,6 +76,9 @@ func New(l *slog.Logger, seed int64) (*State, error) {
 		producers[i] = resource
 	}
 
+	borderPaddingX := float64(xmax-xmin) * borderPaddingPct
+	borderPaddingY := float64(ymax-ymin) * borderPaddingPct
+
 	// Return state
 	return &State{
 		producers: producers,
@@ -85,10 +89,10 @@ func New(l *slog.Logger, seed int64) (*State, error) {
 
 		randSrc: rand.New(rand.NewSource(seed)),
 
-		xmin: int(float64(xmin) * borderMultiplier),
-		xmax: int(float64(xmax) * borderMultiplier),
-		ymin: int(float64(ymin) * borderMultiplier),
-		ymax: int(float64(ymax) * borderMultiplier),
+		xmin: int(float64(xmin) - borderPaddingX),
+		xmax: int(float64(xmax) + borderPaddingX),
+		ymin: int(float64(ymin) - borderPaddingY),
+		ymax: int(float64(ymax) + borderPaddingY),
 	}, nil
 }
 
@@ -107,6 +111,11 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 	s.spawnNewProducers(l)
 
 	// Step 3: Move producers
+	for _, producer := range s.producers {
+		if producer.IsMovable() {
+			producer.TryMove()
+		}
+	}
 
 	return nil
 }
@@ -265,6 +274,21 @@ func (s *State) toHTTP() statehttp.State {
 	factories := make([]statehttp.Factory, 0)
 	transports := make([]statehttp.Transport, 0)
 	for _, producer := range s.producers {
+		active := true
+		resource, ok := producer.(*resources.Resource)
+		if ok {
+			newSales := make([]*production.Contract, 0)
+			for _, sale := range resource.Sales {
+				if !sale.Cancelled {
+					newSales = append(newSales, sale)
+				}
+			}
+			resource.Sales = newSales
+			if len(resource.Sales) == 0 {
+				active = false
+			}
+		}
+
 		// List producer products
 		products := make([]string, 0)
 		for _, product := range producer.Products() {
@@ -272,18 +296,27 @@ func (s *State) toHTTP() statehttp.State {
 		}
 
 		// Append factory with list of products
+		profitability := producer.Profitability()
+		if math.IsNaN(profitability) {
+			profitability = 0
+		}
 		factory := statehttp.Factory{
 			Location: statehttp.Location{
 				X: producer.Location().X,
 				Y: producer.Location().Y,
 			},
 			Products:      products,
-			Profitability: producer.Profitability(),
+			Profitability: profitability,
+			Active:        active,
 		}
 		factories = append(factories, factory)
 
 		// List incoming transports
 		for _, contract := range producer.ContractsIn() {
+			rate := contract.Order.Rate
+			if math.IsNaN(rate) {
+				rate = 0
+			}
 			transport := statehttp.Transport{
 				Origin: statehttp.Location{
 					X: contract.Seller.Location().X,
@@ -293,7 +326,7 @@ func (s *State) toHTTP() statehttp.State {
 					X: contract.Buyer.Location().X,
 					Y: contract.Buyer.Location().Y,
 				},
-				Rate: contract.Order.Rate,
+				Rate: rate,
 			}
 			transports = append(transports, transport)
 		}
@@ -310,15 +343,21 @@ func (s *State) toHTTP() statehttp.State {
 }
 
 // ServeState serves the current state of the simulation.
-func (s *State) Serve() http.HandlerFunc {
+func (s *State) Serve(l *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Block ticks while serving state
 		s.m.Lock()
 		defer s.m.Unlock()
 
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:8000")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+
 		w.Header().Set("Content-Type", "application/json")
 
 		if err := json.NewEncoder(w).Encode(s.toHTTP()); err != nil {
+			l.Error("failed to encode state: " + err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}

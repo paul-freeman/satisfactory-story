@@ -195,5 +195,5 @@ func (f *floatString) UnmarshalJSON(b []byte) error {
 // TransportCost returns the cost of transporting the given product from the
 // given producer to the given location.
 func TransportCost(origin point.Point, destination point.Point) float64 {
-	return origin.Distance(destination)
+	return origin.Distance(destination) / 100.0
 }

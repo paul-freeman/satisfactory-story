@@ -6,6 +6,7 @@ import (
 
 	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
+	"github.com/paul-freeman/satisfactory-story/recipes"
 )
 
 type Factory struct {
@@ -159,4 +160,57 @@ func (f *Factory) ContractsIn() []*production.Contract {
 	return f.purchases
 }
 
+// TryMove implements production.Producer.
+func (f *Factory) TryMove() bool {
+	up := f.loc.Up()
+	down := f.loc.Down()
+	left := f.loc.Left()
+	right := f.loc.Right()
+
+	costsHere := f.transportCostsAt(f.loc)
+	costsUp := f.transportCostsAt(up)
+	costsDown := f.transportCostsAt(down)
+	costsLeft := f.transportCostsAt(left)
+	costsRight := f.transportCostsAt(right)
+	if costsUp < costsHere && costsUp <= costsDown && costsUp <= costsLeft && costsUp <= costsRight {
+		f.MoveTo(up)
+		return true
+	}
+	if costsUp < costsHere && costsDown <= costsUp && costsDown <= costsLeft && costsDown <= costsRight {
+		f.MoveTo(down)
+		return true
+	}
+	if costsUp < costsHere && costsLeft <= costsUp && costsLeft <= costsDown && costsLeft <= costsRight {
+		f.MoveTo(left)
+		return true
+	}
+	if costsUp < costsHere && costsRight <= costsUp && costsRight <= costsDown && costsRight <= costsLeft {
+		f.MoveTo(right)
+		return true
+	}
+	return false
+}
+
 var _ production.Producer = (*Factory)(nil)
+
+func (f *Factory) transportCostsAt(p point.Point) float64 {
+	c := 0.0
+	for _, sale := range f.sales {
+		c += recipes.TransportCost(sale.Buyer.Location(), p)
+	}
+	for _, purchase := range f.purchases {
+		c += recipes.TransportCost(p, purchase.Seller.Location())
+	}
+	return c
+}
+
+func (f *Factory) MoveTo(loc point.Point) {
+	f.loc = loc
+	for _, sale := range f.sales {
+		sale.TransportCost = recipes.TransportCost(loc, sale.Buyer.Location())
+	}
+	for _, purchase := range f.purchases {
+		purchase.TransportCost = recipes.TransportCost(purchase.Seller.Location(), loc)
+	}
+	return
+}

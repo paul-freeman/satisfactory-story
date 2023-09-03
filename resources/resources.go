@@ -31,7 +31,7 @@ type Resource struct {
 	Production production.Production
 	Purity     purity
 	Loc        point.Point
-	sales      []*production.Contract
+	Sales      []*production.Contract
 }
 
 func New() ([]*Resource, error) {
@@ -62,10 +62,12 @@ func New() ([]*Resource, error) {
 		}
 		name = toCanonicalName(name)
 		const duration = 60.0 // 60 seconds
+		x := int(data.Longitude * 1000)
+		y := int(data.Latitude * 1000)
 		resources[i] = &Resource{
 			Production: production.New(name, 1, amount/duration),
 			Purity:     purity,
-			Loc:        point.Point{X: int(data.Longitude * 100), Y: int(data.Latitude * 100)},
+			Loc:        point.Point{X: x, Y: y},
 		}
 	}
 
@@ -101,14 +103,14 @@ func (r Resource) Profit() float64 {
 
 	// Review sales
 	newSales := make([]*production.Contract, 0)
-	for _, sale := range r.sales {
+	for _, sale := range r.Sales {
 		if !sale.Cancelled {
 			profit += sale.ProductCost
 			profit -= sale.TransportCost
 			newSales = append(newSales, sale)
 		}
 	}
-	r.sales = newSales
+	r.Sales = newSales
 
 	return profit
 }
@@ -116,7 +118,7 @@ func (r Resource) Profit() float64 {
 func (r Resource) Profitability() float64 {
 	income := 0.0
 	expenses := 0.0
-	for _, sale := range r.sales {
+	for _, sale := range r.Sales {
 		if !sale.Cancelled {
 			income += sale.ProductCost
 			expenses += sale.TransportCost
@@ -132,7 +134,7 @@ func (r *Resource) SignAsBuyer(_ *production.Contract) error {
 
 // SignAsSeller implements production.Producer.
 func (r *Resource) SignAsSeller(contract *production.Contract) error {
-	r.sales = append(r.sales, contract)
+	r.Sales = append(r.Sales, contract)
 	return nil
 }
 
@@ -152,7 +154,7 @@ func (r *Resource) HasCapacityFor(order production.Production) error {
 
 	// Check current sales
 	rate := r.Production.Rate
-	for _, sale := range r.sales {
+	for _, sale := range r.Sales {
 		if sale.Cancelled {
 			continue
 		}
@@ -175,6 +177,12 @@ func (r *Resource) HasCapacityFor(order production.Production) error {
 // ContractsIn implements production.Producer.
 func (r *Resource) ContractsIn() []*production.Contract {
 	return []*production.Contract{}
+}
+
+// TryMove implements production.Producer.
+func (r *Resource) TryMove() bool {
+	// Resources cannot be moved
+	return false
 }
 
 var _ production.Producer = (*Resource)(nil)

@@ -14,6 +14,7 @@ type Factory struct {
 	Location      Location `json:"location"`
 	Products      []string `json:"recipe"`
 	Profitability float64  `json:"profitability"`
+	Active        bool     `json:"active"`
 }
 
 type Transport struct {

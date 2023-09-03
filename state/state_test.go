@@ -18,6 +18,10 @@ func Test_state_Tick(t *testing.T) {
 		}))
 		testState, err := New(l, 11)
 		assert.NoError(t, err, "failed to create state")
+		assert.NotEqual(t, 0, testState.xmin, "xmin should not be 0")
+		assert.NotEqual(t, 0, testState.xmax, "xmax should not be 0")
+		assert.NotEqual(t, 0, testState.ymin, "ymin should not be 0")
+		assert.NotEqual(t, 0, testState.ymax, "ymax should not be 0")
 		for _, producer := range testState.producers {
 			for _, product := range producer.Products() {
 				// TODO: What do these products do?

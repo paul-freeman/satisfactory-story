@@ -36,6 +36,8 @@ type Producer interface {
 	// ContractsIn returns the active contracts that deliver products to the
 	// producer.
 	ContractsIn() []*Contract
+	// TryMove attempts to move the producer to a more profitable location.
+	TryMove() bool
 }
 
 type Products []Production

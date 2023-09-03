@@ -42,7 +42,7 @@ func main() {
 
 	// Setup HTTP server
 	port := ":28100"
-	http.HandleFunc("/json", s.Serve())
+	http.HandleFunc("/json", s.Serve(l))
 	go func() {
 		fmt.Printf("Server running on %s\n", port)
 		if err := http.ListenAndServe(port, nil); err != nil {

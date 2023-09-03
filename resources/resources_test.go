@@ -53,7 +53,7 @@ func Test_resource_HasCapacityFor(t *testing.T) {
 				Production: tt.fields.Production,
 				Purity:     tt.fields.Purity,
 				Loc:        tt.fields.Loc,
-				sales:      tt.fields.sales,
+				Sales:      tt.fields.sales,
 			}
 			if err := r.HasCapacityFor(tt.args.order); (err != nil) != tt.wantErr {
 				t.Errorf("resource.HasCapacityFor() error = %v, wantErr %v", err, tt.wantErr)
