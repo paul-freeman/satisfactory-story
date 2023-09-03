@@ -173,19 +173,19 @@ func (f *Factory) TryMove() bool {
 	costsLeft := f.transportCostsAt(left)
 	costsRight := f.transportCostsAt(right)
 	if costsUp < costsHere && costsUp <= costsDown && costsUp <= costsLeft && costsUp <= costsRight {
-		f.MoveTo(up)
+		f.moveTo(up)
 		return true
 	}
 	if costsUp < costsHere && costsDown <= costsUp && costsDown <= costsLeft && costsDown <= costsRight {
-		f.MoveTo(down)
+		f.moveTo(down)
 		return true
 	}
 	if costsUp < costsHere && costsLeft <= costsUp && costsLeft <= costsDown && costsLeft <= costsRight {
-		f.MoveTo(left)
+		f.moveTo(left)
 		return true
 	}
 	if costsUp < costsHere && costsRight <= costsUp && costsRight <= costsDown && costsRight <= costsLeft {
-		f.MoveTo(right)
+		f.moveTo(right)
 		return true
 	}
 	return false
@@ -204,7 +204,7 @@ func (f *Factory) transportCostsAt(p point.Point) float64 {
 	return c
 }
 
-func (f *Factory) MoveTo(loc point.Point) {
+func (f *Factory) moveTo(loc point.Point) {
 	f.loc = loc
 	for _, sale := range f.sales {
 		sale.TransportCost = recipes.TransportCost(loc, sale.Buyer.Location())
