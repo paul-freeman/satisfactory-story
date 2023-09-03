@@ -1,22 +1,27 @@
 package state
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"net/http"
 	"sort"
+	"sync"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
 	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
 	"github.com/paul-freeman/satisfactory-story/recipes"
 	"github.com/paul-freeman/satisfactory-story/resources"
-	"github.com/paul-freeman/satisfactory-story/state/http"
+	statehttp "github.com/paul-freeman/satisfactory-story/state/http"
 )
 
 const borderMultiplier = 1.1
 
-type state struct {
+type State struct {
+	m sync.Mutex
+
 	producers []production.Producer
 	recipes   recipes.Recipes
 	market    map[string]float64
@@ -32,7 +37,7 @@ type state struct {
 	ymax int
 }
 
-func New(l *slog.Logger, seed int64) (*state, error) {
+func New(l *slog.Logger, seed int64) (*State, error) {
 	// Load resources and recipes
 	resources, err := resources.New()
 	if err != nil {
@@ -71,7 +76,7 @@ func New(l *slog.Logger, seed int64) (*state, error) {
 	}
 
 	// Return state
-	return &state{
+	return &State{
 		producers: producers,
 		recipes:   recipes,
 		market:    make(map[string]float64),
@@ -87,7 +92,11 @@ func New(l *slog.Logger, seed int64) (*state, error) {
 	}, nil
 }
 
-func (s *state) Tick(parentLogger *slog.Logger) error {
+func (s *State) Tick(parentLogger *slog.Logger) error {
+	// Block serving state while ticking
+	s.m.Lock()
+	defer s.m.Unlock()
+
 	s.tick++
 	l := parentLogger.With(slog.Int("tick", s.tick))
 
@@ -107,7 +116,7 @@ type producerStats struct {
 	profit float64
 }
 
-func (s *state) removeUnprofitableProducers(l *slog.Logger) {
+func (s *State) removeUnprofitableProducers(l *slog.Logger) {
 	// Group producers by product
 	groupedStats := make(map[string][](producerStats))
 	for _, p := range s.producers {
@@ -163,7 +172,7 @@ type producerCost struct {
 	cost float64
 }
 
-func (s *state) spawnNewProducers(l *slog.Logger) {
+func (s *State) spawnNewProducers(l *slog.Logger) {
 	// Pick a location to spawn the new producer
 	loc := point.Point{
 		X: s.randSrc.Intn(s.xmax-s.xmin) + s.xmin,
@@ -183,7 +192,7 @@ func (s *state) spawnNewProducers(l *slog.Logger) {
 	// Add the new producer
 	newFactory := factory.New(recipe.Name(), loc, recipe.Inputs(), recipe.Outputs())
 	for _, source := range sources {
-		s.WriteContract(l, source.Seller, newFactory, source.Order, source.TransportCost)
+		s.writeContract(l, source.Seller, newFactory, source.Order, source.TransportCost)
 	}
 	s.producers = append(s.producers, newFactory)
 	l.Debug("spawned producer",
@@ -192,7 +201,7 @@ func (s *state) spawnNewProducers(l *slog.Logger) {
 	)
 }
 
-func (s *state) WriteContract(
+func (s *State) writeContract(
 	l *slog.Logger,
 	seller production.Producer,
 	buyer production.Producer,
@@ -243,7 +252,7 @@ func (s *state) WriteContract(
 	return nil
 }
 
-func (s *state) ListFactories(l *slog.Logger) {
+func (s *State) ListFactories(l *slog.Logger) {
 	for _, producer := range s.producers {
 		f, ok := producer.(*factory.Factory)
 		if ok {
@@ -252,9 +261,9 @@ func (s *state) ListFactories(l *slog.Logger) {
 	}
 }
 
-func (s *state) toHTTP() http.State {
-	factories := make([]http.Factory, 0)
-	transports := make([]http.Transport, 0)
+func (s *State) toHTTP() statehttp.State {
+	factories := make([]statehttp.Factory, 0)
+	transports := make([]statehttp.Transport, 0)
 	for _, producer := range s.producers {
 		// List producer products
 		products := make([]string, 0)
@@ -263,8 +272,8 @@ func (s *state) toHTTP() http.State {
 		}
 
 		// Append factory with list of products
-		factory := http.Factory{
-			Location: http.Location{
+		factory := statehttp.Factory{
+			Location: statehttp.Location{
 				X: producer.Location().X,
 				Y: producer.Location().Y,
 			},
@@ -275,12 +284,12 @@ func (s *state) toHTTP() http.State {
 
 		// List incoming transports
 		for _, contract := range producer.ContractsIn() {
-			transport := http.Transport{
-				Origin: http.Location{
+			transport := statehttp.Transport{
+				Origin: statehttp.Location{
 					X: contract.Seller.Location().X,
 					Y: contract.Seller.Location().Y,
 				},
-				Destination: http.Location{
+				Destination: statehttp.Location{
 					X: contract.Buyer.Location().X,
 					Y: contract.Buyer.Location().Y,
 				},
@@ -289,7 +298,7 @@ func (s *state) toHTTP() http.State {
 			transports = append(transports, transport)
 		}
 	}
-	return http.State{
+	return statehttp.State{
 		Factories:  factories,
 		Transports: transports,
 		Tick:       s.tick,
@@ -297,5 +306,20 @@ func (s *state) toHTTP() http.State {
 		Xmax:       s.xmax,
 		Ymin:       s.ymin,
 		Ymax:       s.ymax,
+	}
+}
+
+// ServeState serves the current state of the simulation.
+func (s *State) Serve() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Block ticks while serving state
+		s.m.Lock()
+		defer s.m.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+
+		if err := json.NewEncoder(w).Encode(s.toHTTP()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
