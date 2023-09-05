@@ -74,10 +74,12 @@ func New() ([]*Resource, error) {
 	return resources, nil
 }
 
-func (r *Resource) String() string {
+// PrettyPrint returns a human-readable string representation of the resource.
+func (r *Resource) PrettyPrint() string {
 	return fmt.Sprintf("Resource %s (%s) @ %s", r.Production.Name, r.Purity, r.Loc.String())
 }
 
+// Location returns the location of the resource.
 func (r *Resource) Location() point.Point {
 	return r.Loc
 }
@@ -91,7 +93,7 @@ func (r *Resource) IsRemovable() bool {
 }
 
 func (r *Resource) Remove() error {
-	return fmt.Errorf("resource %s cannot be removed", r.String())
+	return fmt.Errorf("resource %s cannot be removed", r.PrettyPrint())
 }
 
 func (r *Resource) Products() production.Products {
@@ -129,7 +131,7 @@ func (r Resource) Profitability() float64 {
 
 // SignAsBuyer implements production.Producer.
 func (r *Resource) SignAsBuyer(_ *production.Contract) error {
-	return fmt.Errorf("resource %s cannot make purchases", r.String())
+	return fmt.Errorf("resource %s cannot make purchases", r.PrettyPrint())
 }
 
 // SignAsSeller implements production.Producer.
@@ -166,10 +168,10 @@ func (r *Resource) HasCapacityFor(order production.Production) error {
 
 	// Check new order
 	if order.Name != r.Production.Name {
-		return fmt.Errorf("resource %s cannot produce %s", r.String(), order.String())
+		return fmt.Errorf("resource %s cannot produce %s", r.PrettyPrint(), order.Key())
 	}
 	if rate < order.Rate {
-		return fmt.Errorf("resource %s cannot produce %s at rate %f", r.String(), order.String(), order.Rate)
+		return fmt.Errorf("resource %s cannot produce %s at rate %f", r.PrettyPrint(), order.Key(), order.Rate)
 	}
 	return nil
 }
@@ -177,12 +179,6 @@ func (r *Resource) HasCapacityFor(order production.Production) error {
 // ContractsIn implements production.Producer.
 func (r *Resource) ContractsIn() []*production.Contract {
 	return []*production.Contract{}
-}
-
-// TryMove implements production.Producer.
-func (r *Resource) TryMove() bool {
-	// Resources cannot be moved
-	return false
 }
 
 var _ production.Producer = (*Resource)(nil)

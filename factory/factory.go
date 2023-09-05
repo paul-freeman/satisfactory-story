@@ -83,7 +83,7 @@ func (f *Factory) HasCapacityFor(order production.Production) error {
 		return fmt.Errorf("production rate must be positive")
 	}
 	if !slices.Contains(f.output, order) {
-		return fmt.Errorf("factory %s cannot produce %s", f.String(), order.String())
+		return fmt.Errorf("factory %s cannot produce %s", f.String(), order.Key())
 	}
 	return nil
 }
@@ -140,7 +140,7 @@ func (f *Factory) Profitability() float64 {
 
 // String implements producer.
 func (f *Factory) String() string {
-	return fmt.Sprintf("%s [%s]+>[%s]", f.Name, f.input.String(), f.output.String())
+	return fmt.Sprintf("%s [%s]+>[%s]", f.Name, f.input.Key(), f.output.Key())
 }
 
 // SignAsBuyer implements production.Producer.
@@ -160,8 +160,7 @@ func (f *Factory) ContractsIn() []*production.Contract {
 	return f.purchases
 }
 
-// TryMove implements production.Producer.
-func (f *Factory) TryMove() bool {
+func (f *Factory) Move() error {
 	up := f.loc.Up()
 	down := f.loc.Down()
 	left := f.loc.Left()
@@ -174,21 +173,21 @@ func (f *Factory) TryMove() bool {
 	costsRight := f.transportCostsAt(right)
 	if costsUp < costsHere && costsUp <= costsDown && costsUp <= costsLeft && costsUp <= costsRight {
 		f.moveTo(up)
-		return true
+		return nil
 	}
 	if costsUp < costsHere && costsDown <= costsUp && costsDown <= costsLeft && costsDown <= costsRight {
 		f.moveTo(down)
-		return true
+		return nil
 	}
 	if costsUp < costsHere && costsLeft <= costsUp && costsLeft <= costsDown && costsLeft <= costsRight {
 		f.moveTo(left)
-		return true
+		return nil
 	}
 	if costsUp < costsHere && costsRight <= costsUp && costsRight <= costsDown && costsRight <= costsLeft {
 		f.moveTo(right)
-		return true
+		return nil
 	}
-	return false
+	return nil
 }
 
 var _ production.Producer = (*Factory)(nil)

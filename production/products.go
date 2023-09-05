@@ -2,6 +2,7 @@ package production
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -12,12 +13,7 @@ import (
 type Producer interface {
 	// Location returns the location of the producer.
 	Location() point.Point
-	// IsMovable returns true if the producer can be moved.
-	IsMovable() bool
-	// IsRemovable returns true if the producer can be removed.
-	IsRemovable() bool
-	// Remove removes the producer.
-	Remove() error
+
 	// Products returns the products that the producer produces.
 	Products() Products
 	// Profit returns the profit of the producer.
@@ -36,18 +32,26 @@ type Producer interface {
 	// ContractsIn returns the active contracts that deliver products to the
 	// producer.
 	ContractsIn() []*Contract
-	// TryMove attempts to move the producer to a more profitable location.
-	TryMove() bool
+}
+
+type MoveableProducer interface {
+	Producer
+	// Move attempts to move the producer to a more profitable location.
+	Move() error
+	// Remove removes the producer.
+	Remove() error
 }
 
 type Products []Production
 
-func (ps Products) String() string {
+// Key returns a string that can be used as a key in a map.
+func (ps Products) Key() string {
 	strs := make([]string, len(ps))
 	for i, p := range ps {
-		strs[i] = p.String()
+		strs[i] = p.Key()
 	}
-	return fmt.Sprintf("[%s]", strings.Join(strs, ", "))
+	slices.Sort(strs)
+	return fmt.Sprintf("%s", strings.Join(strs, ","))
 }
 
 func (ps Products) Contains(name string) bool {

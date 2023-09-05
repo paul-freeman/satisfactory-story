@@ -42,7 +42,7 @@ func Test_state_Tick(t *testing.T) {
 					for _, recipe := range testState.recipes {
 						for _, input := range recipe.Inputs() {
 							if strings.Contains(strings.ToLower(input.Name), strings.ToLower(product.Name)) {
-								t.Fatalf("product %s not in any recipe: found %s instead", product.Name, input)
+								t.Fatalf("product %s not in any recipe: found %s instead", product.Name, input.Key())
 							}
 						}
 					}
@@ -79,7 +79,7 @@ func Test_state_Tick(t *testing.T) {
 		for _, producer := range testState.producers {
 			f, ok := producer.(*factory.Factory)
 			if ok {
-				l.Info(f.String())
+				l.Info(f.String(), slog.Float64("profit", f.Profit()))
 			}
 		}
 	})

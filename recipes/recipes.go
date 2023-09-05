@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"golang.org/x/text/encoding/unicode"
@@ -75,7 +76,7 @@ type Source struct {
 	TransportCost float64
 }
 
-func (r Recipe) SourceProducts(sellers []production.Producer, destination point.Point) (map[string]Source, error) {
+func (r Recipe) SourceProducts(l *slog.Logger, sellers []production.Producer, destination point.Point) (map[string]Source, error) {
 	sourcedProducts := make(map[string]Source)
 	for _, order := range r.Inputs() {
 		// Find producers that produce the input product
@@ -97,6 +98,7 @@ func (r Recipe) SourceProducts(sellers []production.Producer, destination point.
 			}
 		}
 		if bestProducer == nil {
+			l.Info("failed to find producer for input", slog.String("input", order.Name))
 			return nil, fmt.Errorf("failed to find producer for input %s", order.Name)
 		}
 		sourcedProducts[order.Name] = Source{
@@ -123,8 +125,8 @@ func (r Recipe) String() string {
 		"%s (%s) %s => %s",
 		r.Name(),
 		r.ProducedIn.String(),
-		r.InputProducts.String(),
-		r.OutputProducts.String(),
+		r.InputProducts.Key(),
+		r.OutputProducts.Key(),
 	)
 }
 
@@ -195,5 +197,5 @@ func (f *floatString) UnmarshalJSON(b []byte) error {
 // TransportCost returns the cost of transporting the given product from the
 // given producer to the given location.
 func TransportCost(origin point.Point, destination point.Point) float64 {
-	return origin.Distance(destination) / 100.0
+	return 1 + origin.Distance(destination)/10000.0
 }

@@ -1,9 +1,5 @@
 package production
 
-import (
-	"fmt"
-)
-
 type Production struct {
 	Name string
 	Rate float64
@@ -20,6 +16,6 @@ func New(name string, amount float64, duration float64) Production {
 	}
 }
 
-func (p Production) String() string {
-	return fmt.Sprintf("%s (%.2f)", p.Name, p.Rate)
+func (p Production) Key() string {
+	return p.Name
 }

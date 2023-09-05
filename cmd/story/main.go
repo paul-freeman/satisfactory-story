@@ -56,6 +56,7 @@ func main() {
 
 	<-c
 	fmt.Println("\nReceived Ctrl+C, shutting down.")
+	s.ListFactories(l)
 	os.Exit(0)
 }
 

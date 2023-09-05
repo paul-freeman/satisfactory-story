@@ -18,7 +18,10 @@ import (
 	statehttp "github.com/paul-freeman/satisfactory-story/state/http"
 )
 
-const borderPaddingPct = 0.1
+const (
+	borderPaddingPct   = 0.1
+	minProducersToKeep = 5
+)
 
 type State struct {
 	m sync.Mutex
@@ -104,70 +107,74 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 	s.tick++
 	l := parentLogger.With(slog.Int("tick", s.tick))
 
-	// Step 1: Remove unprofitable producers
 	s.removeUnprofitableProducers(l)
-
-	// Step 2: Spawn new producers
 	s.spawnNewProducers(l)
-
-	// Step 3: Move producers
-	for _, producer := range s.producers {
-		if producer.IsMovable() {
-			producer.TryMove()
-		}
-	}
+	s.moveProducer(l)
 
 	return nil
 }
 
 type producerStats struct {
-	p      production.Producer
-	profit float64
+	producer production.Producer
+	profit   float64
 }
 
 func (s *State) removeUnprofitableProducers(l *slog.Logger) {
+	// Calculate profit for each producer
+	stats := make([]producerStats, 0, len(s.producers))
+	for _, producer := range s.producers {
+		stats = append(stats, producerStats{producer, producer.Profit()})
+	}
+
 	// Group producers by product
 	groupedStats := make(map[string][](producerStats))
-	for _, p := range s.producers {
-		newStats := producerStats{p, p.Profit()}
-		productsStr := p.Products().String()
-		currentStats, ok := groupedStats[productsStr]
+	for _, stat := range stats {
+		productsKey := stat.producer.Products().Key()
+		currentStats, ok := groupedStats[productsKey]
 		if !ok {
-			groupedStats[productsStr] = []producerStats{newStats}
+			groupedStats[productsKey] = []producerStats{stat}
 		} else {
-			groupedStats[productsStr] = append(currentStats, newStats)
+			groupedStats[productsKey] = append(currentStats, stat)
 		}
 	}
 
 	// Sort producers groups by profit - most profitable first
-	for _, producers := range groupedStats {
-		sort.Slice(producers, func(i, j int) bool {
-			return producers[i].profit > producers[j].profit
+	for _, statsGroup := range groupedStats {
+		sort.Slice(statsGroup, func(i, j int) bool {
+			return statsGroup[i].profit > statsGroup[j].profit
 		})
 	}
 
 	// Remove unprofitable producers
 	finalProducers := make([]production.Producer, 0, len(s.producers))
-	for _, pps := range groupedStats {
-		// Keep the most profitable producer
-		finalProducers = append(finalProducers, pps[0].p)
+	for _, statsGroup := range groupedStats {
+		for i, val := range statsGroup {
+			// Keep the most profitable N producers
+			if i < minProducersToKeep {
+				finalProducers = append(finalProducers, val.producer)
+				continue
+			}
 
-		// Keep all producers that are profitable or not removable
-		for _, pp := range pps[1:] {
-			if pp.profit > 0 || !pp.p.IsRemovable() {
-				// Keep producer
-				finalProducers = append(finalProducers, pp.p)
-			} else {
-				pp.p.Remove()
-				f, ok := pp.p.(*factory.Factory)
-				if !ok {
-					l.Error("removed non-factory producer")
+			switch v := val.producer.(type) {
+			case production.MoveableProducer:
+				if val.profit > 0 {
+					// Keep producer
+					finalProducers = append(finalProducers, val.producer)
 				} else {
-					l.Debug("removed producer",
-						slog.String("factory", f.Name),
-						slog.Float64("profit", pp.profit),
-					)
+					v.Remove()
+					f, ok := val.producer.(*factory.Factory)
+					if !ok {
+						l.Error("removed non-factory producer")
+					} else {
+						l.Debug("removed producer",
+							slog.String("factory", f.Name),
+							slog.Float64("profit", val.profit),
+						)
+					}
 				}
+			default:
+				// Cannot remove immovable producer, so just keep it.
+				finalProducers = append(finalProducers, statsGroup[i].producer)
 			}
 		}
 	}
@@ -192,9 +199,9 @@ func (s *State) spawnNewProducers(l *slog.Logger) {
 	recipe := s.recipes[s.randSrc.Intn(len(s.recipes))]
 
 	// Find the cheapest source of each input product
-	sources, err := recipe.SourceProducts(s.producers, loc)
+	sources, err := recipe.SourceProducts(l, s.producers, loc)
 	if err != nil {
-		l.Debug("failed to source all recipe ingredients", slog.String("spec", recipe.String()))
+		l.Debug("failed to source all recipe ingredients", slog.String("error", err.Error()))
 		return
 	}
 
@@ -208,6 +215,19 @@ func (s *State) spawnNewProducers(l *slog.Logger) {
 		slog.String("factory", newFactory.Name),
 		slog.Float64("profit", newFactory.Profit()),
 	)
+}
+
+func (s *State) moveProducer(l *slog.Logger) {
+	for _, producer := range s.producers {
+		switch producer := producer.(type) {
+		case production.MoveableProducer:
+			if err := producer.Move(); err != nil {
+				l.Error("failed to move producer: " + err.Error())
+			}
+		default:
+			// Do nothing
+		}
+	}
 }
 
 func (s *State) writeContract(
@@ -253,7 +273,7 @@ func (s *State) writeContract(
 
 	// Log contract
 	l.Debug("signed contract",
-		slog.String("order", order.String()),
+		slog.String("order", order.Key()),
 		slog.Float64("transportCost", transportCost),
 		slog.Float64("productCost", salesPrice),
 	)
