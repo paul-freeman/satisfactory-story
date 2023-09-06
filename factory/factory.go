@@ -2,7 +2,6 @@ package factory
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
@@ -82,7 +81,7 @@ func (f *Factory) HasCapacityFor(order production.Production) error {
 	if order.Rate <= 0 {
 		return fmt.Errorf("production rate must be positive")
 	}
-	if !slices.Contains(f.output, order) {
+	if !f.output.Contains(order.Name) {
 		return fmt.Errorf("factory %s cannot produce %s", f.String(), order.Key())
 	}
 	return nil

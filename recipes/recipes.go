@@ -98,7 +98,7 @@ func (r Recipe) SourceProducts(l *slog.Logger, sellers []production.Producer, de
 			}
 		}
 		if bestProducer == nil {
-			l.Info("failed to find producer for input", slog.String("input", order.Name))
+			l.Debug("failed to find producer for input", slog.String("input", order.Name))
 			return nil, fmt.Errorf("failed to find producer for input %s", order.Name)
 		}
 		sourcedProducts[order.Name] = Source{
