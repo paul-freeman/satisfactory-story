@@ -150,28 +150,31 @@ func (s *State) removeUnprofitableProducers(l *slog.Logger) {
 	for _, statsGroup := range groupedStats {
 		for i, val := range statsGroup {
 			// Keep the most profitable N producers
-			if i < minProducersToKeep {
-				finalProducers = append(finalProducers, val.producer)
-				continue
-			}
 
 			switch v := val.producer.(type) {
 			case production.MoveableProducer:
-				if val.profit > 0 {
+				func() {
+					for _, contract := range v.ContractsIn() {
+						if contract.Cancelled {
+							v.Remove()
+							return
+						}
+					}
+					if i < minProducersToKeep {
+						finalProducers = append(finalProducers, val.producer)
+						return
+					}
+					if val.profit <= 0 {
+						v.Remove()
+						return
+					}
+					if len(v.ContractsIn()) == 0 {
+						v.Remove()
+						return
+					}
 					// Keep producer
 					finalProducers = append(finalProducers, val.producer)
-				} else {
-					v.Remove()
-					f, ok := val.producer.(*factory.Factory)
-					if !ok {
-						l.Error("removed non-factory producer")
-					} else {
-						l.Debug("removed producer",
-							slog.String("factory", f.Name),
-							slog.Float64("profit", val.profit),
-						)
-					}
-				}
+				}()
 			default:
 				// Cannot remove immovable producer, so just keep it.
 				finalProducers = append(finalProducers, statsGroup[i].producer)
@@ -320,11 +323,20 @@ func (s *State) toHTTP() statehttp.State {
 		if math.IsNaN(profitability) {
 			profitability = 0
 		}
+		recipe := "EMPTY"
+		numContracts := len(producer.ContractsIn())
+		switch val := producer.(type) {
+		case *factory.Factory:
+			recipe = val.Name
+		case *resources.Resource:
+			recipe = val.Production.Name
+		}
 		factory := statehttp.Factory{
 			Location: statehttp.Location{
 				X: producer.Location().X,
 				Y: producer.Location().Y,
 			},
+			Recipe:        recipe + fmt.Sprintf(" (%d)", numContracts),
 			Products:      products,
 			Profitability: profitability,
 			Active:        active,

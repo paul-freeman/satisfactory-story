@@ -16,6 +16,7 @@ type alias State =
 
 type alias Factory =
     { location : Location
+    , recipe : String
     , products : List String
     , profitability : Float
     , active : Bool
@@ -68,9 +69,10 @@ transportDecoder =
 
 factoryDecoder : Decoder Factory
 factoryDecoder =
-    Decode.map4 Factory
+    Decode.map5 Factory
         (Decode.field "location" locationDecoder)
-        (Decode.field "recipe" (Decode.list Decode.string))
+        (Decode.field "recipe" Decode.string)
+        (Decode.field "products" (Decode.list Decode.string))
         (Decode.field "profitability" Decode.float)
         (Decode.field "active" Decode.bool)
 

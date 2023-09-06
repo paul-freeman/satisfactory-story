@@ -12,7 +12,8 @@ type State struct {
 
 type Factory struct {
 	Location      Location `json:"location"`
-	Products      []string `json:"recipe"`
+	Recipe        string   `json:"recipe"`
+	Products      []string `json:"products"`
 	Profitability float64  `json:"profitability"`
 	Active        bool     `json:"active"`
 }
