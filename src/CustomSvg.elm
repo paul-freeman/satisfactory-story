@@ -1,6 +1,6 @@
 module CustomSvg exposing (..)
 
-import Svg exposing (Svg)
+import Svg exposing (Svg, circle)
 import Svg.Attributes as Attributes
 import Types exposing (Factory, Transport)
 
@@ -18,17 +18,23 @@ drawTransport ymin ymax t =
         []
 
 
-drawFactory : Int -> Int -> Factory -> Svg msg
-drawFactory ymin ymax f =
-    Svg.g [] <|
-        if f.active then
-            [ drawFactoryCircle ymin ymax f
-            , drawFactoryText ymin ymax f
-            ]
+type alias FactorySvg msg =
+    { circle : Svg msg
+    , text : Maybe (Svg msg)
+    }
 
-        else
-            [ drawFactoryCircle ymin ymax f
-            ]
+
+drawFactory : Int -> Int -> Factory -> FactorySvg msg
+drawFactory ymin ymax f =
+    if f.active then
+        { circle = drawFactoryCircle ymin ymax f
+        , text = Just <| drawFactoryText ymin ymax f
+        }
+
+    else
+        { circle = drawFactoryCircle ymin ymax f
+        , text = Just <| drawFactoryText ymin ymax f
+        }
 
 
 drawFactoryCircle : Int -> Int -> Factory -> Svg msg
@@ -39,7 +45,11 @@ drawFactoryCircle ymin ymax f =
         , Attributes.r "500"
         , Attributes.fill <|
             if f.active then
-                "black"
+                if f.profitability > 0 then
+                    "blue"
+
+                else
+                    "purple"
 
             else
                 "lightgrey"

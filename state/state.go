@@ -1,14 +1,15 @@
 package state
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math"
 	"math/rand"
-	"net/http"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
 	"github.com/paul-freeman/satisfactory-story/point"
@@ -30,8 +31,9 @@ type State struct {
 	recipes   recipes.Recipes
 	market    map[string]float64
 
-	seed int64
-	tick int
+	seed   int64
+	tick   int
+	cancel context.CancelFunc
 
 	randSrc *rand.Rand
 
@@ -42,14 +44,20 @@ type State struct {
 }
 
 func New(l *slog.Logger, seed int64) (*State, error) {
+	s := new(State)
+	err := s.getInitialState(l, seed)
+	return s, err
+}
+
+func (s *State) getInitialState(l *slog.Logger, seed int64) error {
 	// Load resources and recipes
 	resources, err := resources.New()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create producers: %w", err)
+		return fmt.Errorf("failed to create producers: %w", err)
 	}
 	recipes, err := recipes.New()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create recipes: %w", err)
+		return fmt.Errorf("failed to create recipes: %w", err)
 	}
 
 	// Find resource location bounds
@@ -82,25 +90,27 @@ func New(l *slog.Logger, seed int64) (*State, error) {
 	borderPaddingX := float64(xmax-xmin) * borderPaddingPct
 	borderPaddingY := float64(ymax-ymin) * borderPaddingPct
 
-	// Return state
-	return &State{
-		producers: producers,
-		recipes:   recipes,
-		market:    make(map[string]float64),
+	// Populate state
+	s.producers = producers
+	s.recipes = recipes
+	s.market = make(map[string]float64)
 
-		tick: 0,
+	s.seed = seed
+	s.tick = 0
+	s.cancel = nil
 
-		randSrc: rand.New(rand.NewSource(seed)),
+	s.randSrc = rand.New(rand.NewSource(seed))
 
-		xmin: int(float64(xmin) - borderPaddingX),
-		xmax: int(float64(xmax) + borderPaddingX),
-		ymin: int(float64(ymin) - borderPaddingY),
-		ymax: int(float64(ymax) + borderPaddingY),
-	}, nil
+	s.xmin = int(float64(xmin) - borderPaddingX)
+	s.xmax = int(float64(xmax) + borderPaddingX)
+	s.ymin = int(float64(ymin) - borderPaddingY)
+	s.ymax = int(float64(ymax) + borderPaddingY)
+
+	return nil
 }
 
 func (s *State) Tick(parentLogger *slog.Logger) error {
-	// Block serving state while ticking
+	// Lock state while ticking
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -111,7 +121,61 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 	s.spawnNewProducers(l)
 	s.moveProducer(l)
 
+	if s.tick >= 50000 {
+		// slow down simulation to save CPU
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	return nil
+}
+
+func (s *State) Run(parentLogger *slog.Logger) {
+	// Set logger
+	logger := parentLogger.With(slog.Bool("running", true))
+
+	// Create cancellation context
+	ctx, cancel := context.WithCancel(context.Background())
+	s.setCancellationFunc(cancel, parentLogger)
+
+	// Run simulation
+	go func() {
+		defer s.setCancellationFunc(nil, logger)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if err := s.Tick(logger); err != nil {
+					logger.Error(fmt.Sprintf("failed to tick state: %v", err))
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (s *State) Stop(_ *slog.Logger) {
+	s.m.Lock()
+	defer s.m.Unlock()
+	if s.cancel != nil {
+		s.cancel()
+	}
+}
+
+func (s *State) Reset(l *slog.Logger) {
+	s.m.Lock()
+	defer s.m.Unlock()
+	s.getInitialState(l, s.seed)
+}
+
+func (s *State) setCancellationFunc(cancel context.CancelFunc, logger *slog.Logger) {
+	s.m.Lock()
+	defer s.m.Unlock()
+	if (s.cancel == nil && cancel == nil) || (s.cancel != nil && cancel != nil) {
+		logger.Warn("setCancellationFunc error")
+		return
+	}
+	s.cancel = cancel
 }
 
 type producerStats struct {
@@ -149,10 +213,8 @@ func (s *State) removeUnprofitableProducers(l *slog.Logger) {
 	finalProducers := make([]production.Producer, 0, len(s.producers))
 	for _, statsGroup := range groupedStats {
 		for i, val := range statsGroup {
-			// Keep the most profitable N producers
-
 			switch v := val.producer.(type) {
-			case production.MoveableProducer:
+			case *factory.Factory:
 				func() {
 					for _, contract := range v.ContractsIn() {
 						if contract.Cancelled {
@@ -160,15 +222,19 @@ func (s *State) removeUnprofitableProducers(l *slog.Logger) {
 							return
 						}
 					}
+					if len(v.ContractsIn()) != len(v.Input) {
+						v.Remove()
+						return
+					}
 					if i < minProducersToKeep {
 						finalProducers = append(finalProducers, val.producer)
 						return
 					}
-					if val.profit <= 0 {
+					if len(v.ContractsIn()) == 0 {
 						v.Remove()
 						return
 					}
-					if len(v.ContractsIn()) == 0 {
+					if val.profit <= 0 {
 						v.Remove()
 						return
 					}
@@ -293,6 +359,15 @@ func (s *State) ListFactories(l *slog.Logger) {
 	}
 }
 
+func (s *State) MarshalJSON() ([]byte, error) {
+	// Lock state while copying
+	s.m.Lock()
+	sJSON := s.toHTTP()
+	s.m.Unlock()
+
+	return json.Marshal(sJSON)
+}
+
 func (s *State) toHTTP() statehttp.State {
 	factories := make([]statehttp.Factory, 0)
 	transports := make([]statehttp.Transport, 0)
@@ -367,30 +442,10 @@ func (s *State) toHTTP() statehttp.State {
 		Factories:  factories,
 		Transports: transports,
 		Tick:       s.tick,
+		Running:    s.cancel != nil,
 		Xmin:       s.xmin,
 		Xmax:       s.xmax,
 		Ymin:       s.ymin,
 		Ymax:       s.ymax,
-	}
-}
-
-// ServeState serves the current state of the simulation.
-func (s *State) Serve(l *slog.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Block ticks while serving state
-		s.m.Lock()
-		defer s.m.Unlock()
-
-		// Set CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:8000")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
-
-		w.Header().Set("Content-Type", "application/json")
-
-		if err := json.NewEncoder(w).Encode(s.toHTTP()); err != nil {
-			l.Error("failed to encode state: " + err.Error())
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
 	}
 }

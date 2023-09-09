@@ -12,8 +12,8 @@ type Factory struct {
 	Name string
 	loc  point.Point
 
-	input    production.Products
-	output   production.Products
+	Input    production.Products
+	Output   production.Products
 	duration float64
 
 	purchases []*production.Contract
@@ -29,8 +29,8 @@ func New(
 	return &Factory{
 		Name:      name,
 		loc:       loc,
-		input:     input,
-		output:    output,
+		Input:     input,
+		Output:    output,
 		purchases: make([]*production.Contract, 0),
 		sales:     make([]*production.Contract, 0),
 	}
@@ -81,7 +81,7 @@ func (f *Factory) HasCapacityFor(order production.Production) error {
 	if order.Rate <= 0 {
 		return fmt.Errorf("production rate must be positive")
 	}
-	if !f.output.Contains(order.Name) {
+	if !f.Output.Contains(order.Name) {
 		return fmt.Errorf("factory %s cannot produce %s", f.String(), order.Key())
 	}
 	return nil
@@ -89,7 +89,7 @@ func (f *Factory) HasCapacityFor(order production.Production) error {
 
 // Products implements producer.
 func (f *Factory) Products() production.Products {
-	return f.output
+	return f.Output
 }
 
 // Profit implements producer.
@@ -139,7 +139,7 @@ func (f *Factory) Profitability() float64 {
 
 // String implements producer.
 func (f *Factory) String() string {
-	return fmt.Sprintf("%s [%s]+>[%s]", f.Name, f.input.Key(), f.output.Key())
+	return fmt.Sprintf("%s [%s]+>[%s]", f.Name, f.Input.Key(), f.Output.Key())
 }
 
 // SignAsBuyer implements production.Producer.
@@ -160,10 +160,10 @@ func (f *Factory) ContractsIn() []*production.Contract {
 }
 
 func (f *Factory) Move() error {
-	up := f.loc.Up()
-	down := f.loc.Down()
-	left := f.loc.Left()
-	right := f.loc.Right()
+	up := f.loc.Up(1)
+	down := f.loc.Down(1)
+	left := f.loc.Left(1)
+	right := f.loc.Right(1)
 
 	costsHere := f.transportCostsAt(f.loc)
 	costsUp := f.transportCostsAt(up)
@@ -171,19 +171,19 @@ func (f *Factory) Move() error {
 	costsLeft := f.transportCostsAt(left)
 	costsRight := f.transportCostsAt(right)
 	if costsUp < costsHere && costsUp <= costsDown && costsUp <= costsLeft && costsUp <= costsRight {
-		f.moveTo(up)
+		f.moveTo(f.loc.Up(max(1, min(100, int(100000*(costsHere-costsUp))))))
 		return nil
 	}
 	if costsUp < costsHere && costsDown <= costsUp && costsDown <= costsLeft && costsDown <= costsRight {
-		f.moveTo(down)
+		f.moveTo(f.loc.Down(max(1, min(100, int(100000*(costsHere-costsDown))))))
 		return nil
 	}
 	if costsUp < costsHere && costsLeft <= costsUp && costsLeft <= costsDown && costsLeft <= costsRight {
-		f.moveTo(left)
+		f.moveTo(f.loc.Left(max(1, min(100, int(100000*(costsHere-costsLeft))))))
 		return nil
 	}
 	if costsUp < costsHere && costsRight <= costsUp && costsRight <= costsDown && costsRight <= costsLeft {
-		f.moveTo(right)
+		f.moveTo(f.loc.Right(max(1, min(100, int(100000*(costsHere-costsRight))))))
 		return nil
 	}
 	return nil

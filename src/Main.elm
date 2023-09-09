@@ -4,10 +4,15 @@ import Browser
 import Browser.Dom exposing (Error, Viewport)
 import Browser.Events
 import CustomSvg
-import Element
+import Element exposing (Element)
+import Element.Background as Background
+import Element.Border as Border
+import Element.Input as Input
 import Html exposing (Html)
 import Http
+import Maybe.Extra exposing (isJust)
 import Process
+import String
 import Svg exposing (svg)
 import Svg.Attributes as Attributes
 import Task
@@ -15,11 +20,13 @@ import Types exposing (State)
 
 
 type alias Model =
-    Result
-        String
-        { svgViewport : Maybe Viewport
-        , state : State
-        }
+    Result String OkModel
+
+
+type alias OkModel =
+    { svgViewport : Maybe Viewport
+    , state : State
+    }
 
 
 initialModel : Model
@@ -33,8 +40,16 @@ initialModel =
 type Msg
     = GetSvgViewport (Result Error Viewport)
     | ResizeWindow Int Int
-    | FetchState (Result Http.Error State) -- Add this for HTTP call
-    | PollState -- Add this to loop the HTTP call
+    | GetState
+    | StateResult (Result Http.Error State)
+    | GetTick
+    | TickResult (Result Http.Error State)
+    | GetRun
+    | RunResult (Result Http.Error ())
+    | GetStop
+    | StopResult (Result Http.Error State)
+    | GetReset
+    | ResetResult (Result Http.Error State)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -56,26 +71,157 @@ update msg modelRes =
                 ResizeWindow _ _ ->
                     ( Ok model, Task.attempt GetSvgViewport Browser.Dom.getViewport )
 
-                FetchState result ->
+                GetState ->
+                    ( Ok model, getStateCmd )
+
+                StateResult result ->
+                    stateResult result model
+
+                GetTick ->
+                    ( Ok model, getTickCmd )
+
+                TickResult result ->
+                    stateResult result model
+
+                GetRun ->
+                    ( Ok model, getRunCmd )
+
+                RunResult result ->
                     case result of
-                        Ok newState ->
-                            ( Ok { model | state = newState }, sleepAndPoll )
+                        Ok _ ->
+                            ( Ok model, getStateCmd )
 
                         Err _ ->
-                            ( Err "error fetching state", sleepAndPoll )
+                            ( Err "error running", Cmd.none )
 
-                PollState ->
-                    ( Ok model, fetchStateCmd )
+                GetStop ->
+                    ( Ok model, getStopCmd )
+
+                StopResult result ->
+                    stateResult result model
+
+                GetReset ->
+                    ( Ok model, getResetCmd )
+
+                ResetResult result ->
+                    stateResult result model
+
+
+stateResult : Result error State -> OkModel -> ( Result String OkModel, Cmd Msg )
+stateResult result model =
+    case result of
+        Ok newState ->
+            if newState.running then
+                ( Ok { model | state = newState }, sleepAndPoll )
+
+            else
+                ( Ok { model | state = newState }, Cmd.none )
+
+        Err _ ->
+            ( Err "error fetching state", Cmd.none )
 
 
 view : Model -> Html Msg
 view model =
     Element.layout [] <|
-        Element.column
+        Element.row
             [ Element.width Element.fill
             , Element.height Element.fill
             ]
-            [ Element.html <| viewSvg model ]
+            [ leftNav model
+            , Element.html <| viewSvg model
+            , rightNav model
+            ]
+
+
+leftNav : Model -> Element Msg
+leftNav modelRes =
+    case modelRes of
+        Err _ ->
+            Element.none
+
+        Ok model ->
+            navColumn <|
+                navColumnItem
+                    [ Element.text "Tick"
+                    , Element.text <| String.fromInt model.state.tick
+                    ]
+                    :: runStopButton model
+
+
+runStopButton : OkModel -> List (Element Msg)
+runStopButton model =
+    if model.state.running then
+        [ navColumnButton (Just GetStop) "Stop" ]
+
+    else
+        [ navColumnButton (Just GetRun) "Run"
+        , navColumnButton (Just GetTick) "Tick"
+        , navColumnButton (Just GetReset) "Reset"
+        ]
+
+
+rightNav : Model -> Element Msg
+rightNav modelRes =
+    case modelRes of
+        Err _ ->
+            Element.none
+
+        Ok model ->
+            navColumn
+                [ navColumnItem
+                    [ Element.text "Producers"
+                    , Element.text <| String.fromInt <| List.length model.state.factories
+                    ]
+                , navColumnItem
+                    [ Element.text "Transports"
+                    , Element.text <| String.fromInt <| List.length model.state.transports
+                    ]
+                , navColumnItem
+                    [ Element.text "Inactive"
+                    , Element.text <| String.fromInt <| List.length <| List.filter (not << .active) model.state.factories
+                    ]
+                ]
+
+
+navColumn : List (Element msg) -> Element msg
+navColumn =
+    Element.column
+        [ Element.width <| Element.px 200
+        , Element.height Element.fill
+        , Border.color <| Element.rgb255 0 0 0
+        , Border.solid
+        , Border.width 2
+        , Background.color <| Element.rgb255 128 128 128
+        , Element.padding 4
+        , Element.spacing 4
+        ]
+
+
+navColumnItem : List (Element msg) -> Element msg
+navColumnItem =
+    Element.column
+        [ Element.width Element.fill
+        , Background.color <| Element.rgb255 255 255 255
+        , Element.padding 4
+        , Border.color <| Element.rgb255 0 0 0
+        , Border.solid
+        , Border.width 1
+        ]
+
+
+navColumnButton : Maybe msg -> String -> Element msg
+navColumnButton onPress text =
+    navColumnItem <|
+        [ Input.button
+            [ Element.width Element.fill
+            , Element.height Element.fill
+            , Background.color <| Element.rgb255 192 192 192
+            ]
+            { onPress = onPress
+            , label = Element.text text
+            }
+        ]
 
 
 viewSvg : Model -> Html Msg
@@ -95,6 +241,40 @@ viewSvg modelRes =
                     model.svgViewport
                         |> Maybe.map (.viewport >> .height >> round)
                         |> Maybe.withDefault 100
+
+                inactiveFactories =
+                    List.map
+                        (CustomSvg.drawFactory model.state.ymin model.state.ymax)
+                        (List.filter (not << .active) model.state.factories)
+
+                profitableFactories =
+                    List.map (CustomSvg.drawFactory model.state.ymin model.state.ymax)
+                        (List.filter (.profitability >> (<) 0) (List.filter .active model.state.factories))
+
+                unprofitableFactories =
+                    List.map (CustomSvg.drawFactory model.state.ymin model.state.ymax)
+                        (List.filter (.profitability >> (>=) 0) (List.filter .active model.state.factories))
+
+                inactiveFactoryCircles =
+                    Svg.g [] <| List.map .circle inactiveFactories
+
+                profitableFactoryCircles =
+                    Svg.g [] <| List.map .circle profitableFactories
+
+                unprofitableFactoryCircles =
+                    Svg.g [] <| List.map .circle unprofitableFactories
+
+                profitableFactoryLabels =
+                    List.map .text profitableFactories
+                        |> List.filter isJust
+                        |> List.map (Maybe.withDefault (Svg.text ""))
+                        |> Svg.g []
+
+                unprofitableFactoryLabels =
+                    List.map .text unprofitableFactories
+                        |> List.filter isJust
+                        |> List.map (Maybe.withDefault (Svg.text ""))
+                        |> Svg.g []
             in
             svg
                 [ Attributes.width <| String.fromInt width
@@ -107,9 +287,13 @@ viewSvg modelRes =
                         , String.fromInt (model.state.ymax - model.state.ymin)
                         ]
                 ]
-                (List.map (CustomSvg.drawTransport model.state.ymin model.state.ymax) model.state.transports
-                    ++ List.map (CustomSvg.drawFactory model.state.ymin model.state.ymax) model.state.factories
-                )
+                [ inactiveFactoryCircles
+                , Svg.g [] (List.map (CustomSvg.drawTransport model.state.ymin model.state.ymax) model.state.transports)
+                , unprofitableFactoryLabels
+                , profitableFactoryLabels
+                , unprofitableFactoryCircles
+                , profitableFactoryCircles
+                ]
 
 
 type alias Flags =
@@ -124,7 +308,7 @@ main =
                 ( initialModel
                 , Cmd.batch
                     [ Task.attempt GetSvgViewport Browser.Dom.getViewport
-                    , fetchStateCmd
+                    , getStateCmd
                     ]
                 )
         , subscriptions = subscriptions
@@ -133,18 +317,50 @@ main =
         }
 
 
-fetchStateCmd : Cmd Msg
-fetchStateCmd =
+getStateCmd : Cmd Msg
+getStateCmd =
     Http.get
-        { url = "http://localhost:28100/json"
-        , expect = Http.expectJson FetchState Types.stateDecoder
+        { url = "http://localhost:28100/state"
+        , expect = Http.expectJson StateResult Types.stateDecoder
+        }
+
+
+getTickCmd : Cmd Msg
+getTickCmd =
+    Http.get
+        { url = "http://localhost:28100/tick"
+        , expect = Http.expectJson StateResult Types.stateDecoder
+        }
+
+
+getRunCmd : Cmd Msg
+getRunCmd =
+    Http.get
+        { url = "http://localhost:28100/run"
+        , expect = Http.expectWhatever RunResult
+        }
+
+
+getStopCmd : Cmd Msg
+getStopCmd =
+    Http.get
+        { url = "http://localhost:28100/stop"
+        , expect = Http.expectJson StateResult Types.stateDecoder
+        }
+
+
+getResetCmd : Cmd Msg
+getResetCmd =
+    Http.get
+        { url = "http://localhost:28100/reset"
+        , expect = Http.expectJson StateResult Types.stateDecoder
         }
 
 
 sleepAndPoll : Cmd Msg
 sleepAndPoll =
-    Process.sleep 1000
-        |> Task.andThen (\_ -> Task.succeed PollState)
+    Process.sleep 50
+        |> Task.andThen (\_ -> Task.succeed GetState)
         |> Task.perform identity
 
 

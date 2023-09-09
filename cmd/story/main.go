@@ -4,18 +4,13 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/paul-freeman/satisfactory-story/state"
+	"github.com/paul-freeman/satisfactory-story/state/http"
 )
-
-type simulator interface {
-	// Tick advances the simulation by one tick.
-	Tick() error
-}
 
 func main() {
 	var verbose bool
@@ -24,31 +19,14 @@ func main() {
 
 	// Create state
 	l := makeLogger(verbose)
-	seed := int64(52)
+	seed := int64(152)
 	s, err := state.New(l, seed)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create state: %v", err))
 	}
 
-	// Run simulation
-	go func() {
-		for {
-			err := s.Tick(l)
-			if err != nil {
-				panic(fmt.Sprintf("failed to tick state: %v", err))
-			}
-		}
-	}()
-
-	// Setup HTTP server
-	port := ":28100"
-	http.HandleFunc("/json", s.Serve(l))
-	go func() {
-		fmt.Printf("Server running on %s\n", port)
-		if err := http.ListenAndServe(port, nil); err != nil {
-			panic(fmt.Sprintf("failed to start HTTP server: %v", err))
-		}
-	}()
+	// Start HTTP server
+	go http.Serve(s, ":28100", l)
 
 	// Listen for Ctrl+C
 	c := make(chan os.Signal, 1)
