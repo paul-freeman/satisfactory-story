@@ -5,7 +5,7 @@ import Browser.Dom exposing (Error, Viewport)
 import Browser.Events
 import CustomSvg
 import Dict exposing (Dict)
-import Element exposing (Element, scrollbarY)
+import Element exposing (Element, height, scrollbarY)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Font as Font
@@ -30,13 +30,24 @@ type alias Model =
 
 type alias OkModel =
     { viewport : Viewport
-    , viewboxOffset : { x : Float, y : Float }
-    , svg : { viewbox : String }
+    , svg : SvgModel
     , draggingState : Maybe DraggingState
     , zoom : Float
     , recipes : List Types.Recipe
     , activeRecipes : Dict String Bool
     , state : State
+    }
+
+
+type alias SvgModel =
+    { pixelWidth : Int
+    , pixelHeight : Int
+    , viewbox :
+        { x : Float
+        , y : Float
+        , width : Float
+        , height : Float
+        }
     }
 
 
@@ -48,8 +59,11 @@ initialModel : Model
 initialModel =
     Ok
         { viewport = defaultViewport
-        , viewboxOffset = { x = 0, y = 0 }
-        , svg = { viewbox = "0 0 100 100" }
+        , svg =
+            { pixelWidth = 100
+            , pixelHeight = 100
+            , viewbox = { x = 0, y = -130000, width = 160000, height = 100000 }
+            }
         , draggingState = Nothing
         , zoom = 1
         , recipes = []
@@ -106,7 +120,17 @@ update msg modelRes =
                 GetViewport result ->
                     case result of
                         Ok viewport ->
-                            ( Ok { model | viewport = viewport }, Cmd.none )
+                            ( Ok
+                                { model
+                                    | viewport = viewport
+                                    , svg =
+                                        { pixelWidth = round viewport.viewport.width - (2 * navColumnWidth)
+                                        , pixelHeight = round viewport.viewport.height
+                                        , viewbox = model.svg.viewbox
+                                        }
+                                }
+                            , Cmd.none
+                            )
 
                         Err _ ->
                             ( Err "error getting viewport", Cmd.none )
@@ -117,9 +141,15 @@ update msg modelRes =
                 Zooming event ->
                     let
                         newZoom =
-                            model.zoom + (event.deltaY / 1000.0)
+                            model.zoom + (event.deltaY / 600.0)
                     in
-                    ( Ok { model | zoom = newZoom }, Cmd.none )
+                    ( Ok
+                        { model
+                            | zoom = newZoom
+                            , svg = updateSvg newZoom event.mouseEvent.offsetPos model
+                        }
+                    , Cmd.none
+                    )
 
                 DownPointer event ->
                     ( Ok
@@ -148,8 +178,8 @@ update msg modelRes =
                                             { draggingState
                                                 | downX = Tuple.first event.pointer.offsetPos
                                                 , downY = Tuple.second event.pointer.offsetPos
-                                                , tempOffsetX = draggingState.tempOffsetX + (draggingState.downX - Tuple.first event.pointer.offsetPos)
-                                                , tempOffsetY = draggingState.tempOffsetY + (draggingState.downY - Tuple.second event.pointer.offsetPos)
+                                                , tempOffsetX = draggingState.tempOffsetX + (model.svg.viewbox.width / 1200) * (draggingState.downX - Tuple.first event.pointer.offsetPos)
+                                                , tempOffsetY = draggingState.tempOffsetY + (model.svg.viewbox.width / 1200) * (draggingState.downY - Tuple.second event.pointer.offsetPos)
                                             }
                                 }
                             , Cmd.none
@@ -163,9 +193,15 @@ update msg modelRes =
                         Just draggingState ->
                             ( Ok
                                 { model
-                                    | viewboxOffset =
-                                        { x = model.viewboxOffset.x + panOffsetMultiplier model.zoom * (draggingState.tempOffsetX + (draggingState.downX - Tuple.first event.pointer.offsetPos))
-                                        , y = model.viewboxOffset.y + panOffsetMultiplier model.zoom * (draggingState.tempOffsetY + (draggingState.downY - Tuple.second event.pointer.offsetPos))
+                                    | svg =
+                                        { pixelWidth = model.svg.pixelWidth
+                                        , pixelHeight = model.svg.pixelHeight
+                                        , viewbox =
+                                            { x = model.svg.viewbox.x + draggingState.tempOffsetX
+                                            , y = model.svg.viewbox.y + draggingState.tempOffsetY
+                                            , width = model.svg.viewbox.width
+                                            , height = model.svg.viewbox.height
+                                            }
                                         }
                                     , draggingState = Nothing
                                 }
@@ -220,6 +256,43 @@ update msg modelRes =
 
                 SetRecipe name set ->
                     ( Ok { model | activeRecipes = Dict.insert name set model.activeRecipes }, Cmd.none )
+
+
+updateSvg : Float -> ( Float, Float ) -> OkModel -> SvgModel
+updateSvg zoom offsetPos model =
+    let
+        ( cursorX, cursorY ) =
+            offsetPos
+
+        newViewboxWidth =
+            toFloat (model.state.xmax - model.state.xmin) * zoom
+
+        newViewboxHeight =
+            toFloat (model.state.ymax - model.state.ymin) * zoom
+
+        widthChange =
+            newViewboxWidth - model.svg.viewbox.width
+
+        heightChange =
+            newViewboxHeight - model.svg.viewbox.height
+
+        widthOffsetChange =
+            widthChange * cursorX / toFloat model.svg.pixelWidth
+
+        heightOffsetChange =
+            heightChange * cursorY / toFloat model.svg.pixelHeight
+
+        newViewbox =
+            { x = model.svg.viewbox.x - widthOffsetChange
+            , y = model.svg.viewbox.y - heightOffsetChange
+            , width = newViewboxWidth
+            , height = newViewboxHeight
+            }
+    in
+    { pixelWidth = model.svg.pixelWidth
+    , pixelHeight = model.svg.pixelHeight
+    , viewbox = newViewbox
+    }
 
 
 stateResult : Result error State -> OkModel -> ( Result String OkModel, Cmd Msg )
@@ -400,10 +473,10 @@ viewSvg modelRes =
                     round model.viewport.viewport.height
 
                 r =
-                    String.fromFloat (900 / model.zoom)
+                    String.fromFloat (model.svg.viewbox.width / 180)
 
                 fontSize =
-                    String.fromFloat (2000 / model.zoom)
+                    String.fromFloat (model.svg.viewbox.width / 90)
 
                 inactiveFactories =
                     List.map
@@ -440,19 +513,12 @@ viewSvg modelRes =
                         |> Svg.g []
 
                 strokeWidth =
-                    String.fromFloat (200 / model.zoom)
+                    String.fromFloat (model.svg.viewbox.width / 500)
             in
             svg
                 ([ Attributes.width <| String.fromInt width
                  , Attributes.height <| String.fromInt height
-                 , Attributes.viewBox <|
-                    calculateSvgViewbox
-                        { offsetX = model.viewboxOffset.x
-                        , offsetY = model.viewboxOffset.y
-                        , draggingState = model.draggingState
-                        , zoom = model.zoom
-                        , state = model.state
-                        }
+                 , Attributes.viewBox <| calculateSvgViewbox model.draggingState model.svg.viewbox
                  , Wheel.onWheel Zooming
                  , Pointer.onDown DownPointer
                  , Pointer.onUp UpPointer
@@ -473,38 +539,24 @@ viewSvg modelRes =
                 ]
 
 
-calculateSvgViewbox :
-    { offsetX : Float
-    , offsetY : Float
-    , draggingState : Maybe DraggingState
-    , zoom : Float
-    , state : State
-    }
-    -> String
-calculateSvgViewbox { offsetX, offsetY, draggingState, zoom, state } =
-    let
-        tempOffsetX =
-            draggingState
-                |> Maybe.map .tempOffsetX
-                |> Maybe.withDefault 0
+calculateSvgViewbox : Maybe DraggingState -> { x : Float, y : Float, width : Float, height : Float } -> String
+calculateSvgViewbox maybeDragging viewbox =
+    case maybeDragging of
+        Just dragging ->
+            String.join " "
+                [ String.fromFloat <| viewbox.x + dragging.tempOffsetX
+                , String.fromFloat <| viewbox.y + dragging.tempOffsetY
+                , String.fromFloat viewbox.width
+                , String.fromFloat viewbox.height
+                ]
 
-        tempOffsetY =
-            draggingState
-                |> Maybe.map .tempOffsetY
-                |> Maybe.withDefault 0
-
-        newOffsetX =
-            offsetX + tempOffsetX * panOffsetMultiplier zoom
-
-        newOffsetY =
-            offsetY + tempOffsetY * panOffsetMultiplier zoom
-    in
-    String.join " "
-        [ String.fromFloat (toFloat state.xmin + newOffsetX)
-        , String.fromFloat (toFloat state.ymin + newOffsetY)
-        , String.fromFloat (toFloat (state.xmax - state.xmin) / zoom)
-        , String.fromFloat (toFloat (state.ymax - state.ymin) / zoom)
-        ]
+        Nothing ->
+            String.join " "
+                [ String.fromFloat viewbox.x
+                , String.fromFloat viewbox.y
+                , String.fromFloat viewbox.width
+                , String.fromFloat viewbox.height
+                ]
 
 
 type alias Flags =
