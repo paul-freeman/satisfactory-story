@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
-	"time"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
 	"github.com/paul-freeman/satisfactory-story/point"
@@ -121,11 +120,6 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 	s.spawnNewProducers(l)
 	s.moveProducer(l)
 
-	if s.tick >= 50000 {
-		// slow down simulation to save CPU
-		time.Sleep(10 * time.Millisecond)
-	}
-
 	return nil
 }
 
@@ -166,6 +160,28 @@ func (s *State) Reset(l *slog.Logger) {
 	s.m.Lock()
 	defer s.m.Unlock()
 	s.getInitialState(l, s.seed)
+}
+
+func (s *State) Recipes(_ *slog.Logger) []statehttp.Recipe {
+	recipes := make([]statehttp.Recipe, 0, len(s.recipes))
+	for _, recipe := range s.recipes {
+		recipes = append(recipes, statehttp.Recipe{
+			Name: recipe.Name(),
+			Inputs: []statehttp.Product{
+				{
+					Name: recipe.Inputs()[0].Name,
+					Rate: recipe.Inputs()[0].Rate,
+				},
+			},
+			Outputs: []statehttp.Product{
+				{
+					Name: recipe.Outputs()[0].Name,
+					Rate: recipe.Outputs()[0].Rate,
+				},
+			},
+		})
+	}
+	return recipes
 }
 
 func (s *State) setCancellationFunc(cancel context.CancelFunc, logger *slog.Logger) {

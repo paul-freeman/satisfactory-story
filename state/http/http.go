@@ -43,6 +43,7 @@ type Server interface {
 	Run(*slog.Logger)
 	Stop(*slog.Logger)
 	Reset(*slog.Logger)
+	Recipes(*slog.Logger) []Recipe
 }
 
 func Serve(s Server, port string, l *slog.Logger) {
@@ -52,6 +53,7 @@ func Serve(s Server, port string, l *slog.Logger) {
 	http.HandleFunc("/run", handleRun(s, l))
 	http.HandleFunc("/stop", handleStop(s, l))
 	http.HandleFunc("/reset", handleReset(s, l))
+	http.HandleFunc("/recipes", handleRecipes(s, l))
 	fmt.Printf("Server running on %s\n", port)
 	if err := http.ListenAndServe(port, nil); err != nil {
 		panic(fmt.Sprintf("failed to start HTTP server: %v", err))
@@ -123,6 +125,20 @@ func handleReset(s Server, l *slog.Logger) http.HandlerFunc {
 
 		s.Reset(l)
 		if err := json.NewEncoder(w).Encode(s); err != nil {
+			l.Error("failed to encode state: " + err.Error())
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+// handleRecipes is a closure over a Server that calls Recipes(). It returns
+// the recipes.
+func handleRecipes(s Server, l *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json")
+
+		if err := json.NewEncoder(w).Encode(s.Recipes(l)); err != nil {
 			l.Error("failed to encode state: " + err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}

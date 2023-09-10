@@ -90,3 +90,31 @@ stateDecoder =
         (Decode.field "xmax" Decode.int)
         (Decode.field "ymin" Decode.int)
         (Decode.field "ymax" Decode.int)
+
+
+type alias Recipe =
+    { name : String
+    , inputs : List Product
+    , outputs : List Product
+    }
+
+
+type alias Product =
+    { name : String
+    , rate : Float
+    }
+
+
+recipeDecoder : Decoder Recipe
+recipeDecoder =
+    Decode.map3 Recipe
+        (Decode.field "name" Decode.string)
+        (Decode.field "inputs" (Decode.list productDecoder))
+        (Decode.field "outputs" (Decode.list productDecoder))
+
+
+productDecoder : Decoder Product
+productDecoder =
+    Decode.map2 Product
+        (Decode.field "name" Decode.string)
+        (Decode.field "rate" Decode.float)

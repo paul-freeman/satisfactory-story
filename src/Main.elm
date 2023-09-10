@@ -4,13 +4,18 @@ import Browser
 import Browser.Dom exposing (Error, Viewport)
 import Browser.Events
 import CustomSvg
-import Element exposing (Element)
+import Dict exposing (Dict)
+import Element exposing (Element, scrollbarY)
 import Element.Background as Background
 import Element.Border as Border
+import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html)
+import Html.Events.Extra.Pointer as Pointer
+import Html.Events.Extra.Wheel as Wheel
 import Http
-import Maybe.Extra exposing (isJust)
+import Json.Decode as Decode
+import Maybe.Extra exposing (isJust, isNothing)
 import Process
 import String
 import Svg exposing (svg)
@@ -24,22 +29,57 @@ type alias Model =
 
 
 type alias OkModel =
-    { svgViewport : Maybe Viewport
+    { viewport : Viewport
+    , viewboxOffset : { x : Float, y : Float }
+    , svg : { viewbox : String }
+    , draggingState : Maybe DraggingState
+    , zoom : Float
+    , recipes : List Types.Recipe
+    , activeRecipes : Dict String Bool
     , state : State
     }
+
+
+type alias DraggingState =
+    { downX : Float, downY : Float, tempOffsetX : Float, tempOffsetY : Float }
 
 
 initialModel : Model
 initialModel =
     Ok
-        { svgViewport = Nothing
+        { viewport = defaultViewport
+        , viewboxOffset = { x = 0, y = 0 }
+        , svg = { viewbox = "0 0 100 100" }
+        , draggingState = Nothing
+        , zoom = 1
+        , recipes = []
+        , activeRecipes = Dict.empty
         , state = Types.initialState
         }
 
 
+defaultViewport : Viewport
+defaultViewport =
+    { viewport =
+        { x = 0
+        , y = 0
+        , width = 100
+        , height = 100
+        }
+    , scene =
+        { width = 100
+        , height = 100
+        }
+    }
+
+
 type Msg
-    = GetSvgViewport (Result Error Viewport)
+    = GetViewport (Result Error Viewport)
     | ResizeWindow Int Int
+    | Zooming Wheel.Event
+    | DownPointer Pointer.Event
+    | MovePointer Pointer.Event
+    | UpPointer Pointer.Event
     | GetState
     | StateResult (Result Http.Error State)
     | GetTick
@@ -50,6 +90,9 @@ type Msg
     | StopResult (Result Http.Error State)
     | GetReset
     | ResetResult (Result Http.Error State)
+    | GetRecipes
+    | RecipeResult (Result Http.Error (List Types.Recipe))
+    | SetRecipe String Bool
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -60,16 +103,74 @@ update msg modelRes =
 
         Ok model ->
             case msg of
-                GetSvgViewport result ->
+                GetViewport result ->
                     case result of
                         Ok viewport ->
-                            ( Ok { model | svgViewport = Just viewport }, Cmd.none )
+                            ( Ok { model | viewport = viewport }, Cmd.none )
 
                         Err _ ->
                             ( Err "error getting viewport", Cmd.none )
 
                 ResizeWindow _ _ ->
-                    ( Ok model, Task.attempt GetSvgViewport Browser.Dom.getViewport )
+                    ( Ok model, Task.attempt GetViewport Browser.Dom.getViewport )
+
+                Zooming event ->
+                    let
+                        newZoom =
+                            model.zoom + (event.deltaY / 1000.0)
+                    in
+                    ( Ok { model | zoom = newZoom }, Cmd.none )
+
+                DownPointer event ->
+                    ( Ok
+                        { model
+                            | draggingState =
+                                Just
+                                    { downX = Tuple.first event.pointer.offsetPos
+                                    , downY = Tuple.second event.pointer.offsetPos
+                                    , tempOffsetX = 0
+                                    , tempOffsetY = 0
+                                    }
+                        }
+                    , Cmd.none
+                    )
+
+                MovePointer event ->
+                    case model.draggingState of
+                        Nothing ->
+                            ( Ok model, Cmd.none )
+
+                        Just draggingState ->
+                            ( Ok
+                                { model
+                                    | draggingState =
+                                        Just
+                                            { draggingState
+                                                | downX = Tuple.first event.pointer.offsetPos
+                                                , downY = Tuple.second event.pointer.offsetPos
+                                                , tempOffsetX = draggingState.tempOffsetX + (draggingState.downX - Tuple.first event.pointer.offsetPos)
+                                                , tempOffsetY = draggingState.tempOffsetY + (draggingState.downY - Tuple.second event.pointer.offsetPos)
+                                            }
+                                }
+                            , Cmd.none
+                            )
+
+                UpPointer event ->
+                    case model.draggingState of
+                        Nothing ->
+                            ( Ok model, Cmd.none )
+
+                        Just draggingState ->
+                            ( Ok
+                                { model
+                                    | viewboxOffset =
+                                        { x = model.viewboxOffset.x + panOffsetMultiplier model.zoom * (draggingState.tempOffsetX + (draggingState.downX - Tuple.first event.pointer.offsetPos))
+                                        , y = model.viewboxOffset.y + panOffsetMultiplier model.zoom * (draggingState.tempOffsetY + (draggingState.downY - Tuple.second event.pointer.offsetPos))
+                                        }
+                                    , draggingState = Nothing
+                                }
+                            , Cmd.none
+                            )
 
                 GetState ->
                     ( Ok model, getStateCmd )
@@ -106,6 +207,20 @@ update msg modelRes =
                 ResetResult result ->
                     stateResult result model
 
+                GetRecipes ->
+                    ( Ok model, getRecipesCmd )
+
+                RecipeResult result ->
+                    case result of
+                        Ok recipes ->
+                            ( Ok { model | recipes = recipes, activeRecipes = Dict.fromList (List.map (\r -> ( r.name, True )) recipes) }, Cmd.none )
+
+                        Err _ ->
+                            ( Err "error fetching recipes", Cmd.none )
+
+                SetRecipe name set ->
+                    ( Ok { model | activeRecipes = Dict.insert name set model.activeRecipes }, Cmd.none )
+
 
 stateResult : Result error State -> OkModel -> ( Result String OkModel, Cmd Msg )
 stateResult result model =
@@ -123,15 +238,19 @@ stateResult result model =
 
 view : Model -> Html Msg
 view model =
-    Element.layout [] <|
-        Element.row
+    Element.layout
+        []
+        (Element.row
             [ Element.width Element.fill
             , Element.height Element.fill
             ]
             [ leftNav model
-            , Element.html <| viewSvg model
+            , Element.column []
+                [ Element.html <| viewSvg model
+                ]
             , rightNav model
             ]
+        )
 
 
 leftNav : Model -> Element Msg
@@ -141,7 +260,7 @@ leftNav modelRes =
             Element.none
 
         Ok model ->
-            navColumn <|
+            navColumn modelRes <|
                 navColumnItem
                     [ Element.text "Tick"
                     , Element.text <| String.fromInt model.state.tick
@@ -168,34 +287,71 @@ rightNav modelRes =
             Element.none
 
         Ok model ->
-            navColumn
-                [ navColumnItem
+            navColumn modelRes
+                ([ navColumnItem
                     [ Element.text "Producers"
                     , Element.text <| String.fromInt <| List.length model.state.factories
                     ]
-                , navColumnItem
+                 , navColumnItem
                     [ Element.text "Transports"
                     , Element.text <| String.fromInt <| List.length model.state.transports
                     ]
-                , navColumnItem
+                 , navColumnItem
                     [ Element.text "Inactive"
                     , Element.text <| String.fromInt <| List.length <| List.filter (not << .active) model.state.factories
                     ]
-                ]
+                 ]
+                    ++ (model.recipes
+                            |> List.filter (.name >> String.startsWith "Alternate")
+                            |> List.sortBy .name
+                            |> List.map (\r -> recipeCheckbox r model)
+                       )
+                    ++ (model.recipes
+                            |> List.filter (.name >> String.startsWith "Alternate" >> not)
+                            |> List.sortBy .name
+                            |> List.map (\r -> recipeCheckbox r model)
+                       )
+                )
 
 
-navColumn : List (Element msg) -> Element msg
-navColumn =
+recipeCheckbox : Types.Recipe -> OkModel -> Element Msg
+recipeCheckbox recipe model =
+    navColumnItem
+        [ Input.checkbox
+            [ Element.width Element.fill
+            , Element.height Element.fill
+            ]
+            { onChange = SetRecipe recipe.name
+            , icon = Input.defaultCheckbox
+            , checked = Dict.get recipe.name model.activeRecipes |> Maybe.withDefault False
+            , label = Input.labelRight [ Font.size 11 ] <| Element.text recipe.name
+            }
+        ]
+
+
+navColumn : Model -> List (Element msg) -> Element msg
+navColumn model =
     Element.column
-        [ Element.width <| Element.px 200
-        , Element.height Element.fill
+        [ Element.width <| Element.px navColumnWidth
+        , Element.height
+            (Result.map (.viewport >> .viewport >> .height) model
+                |> Result.withDefault 0
+                |> round
+                |> Element.px
+            )
         , Border.color <| Element.rgb255 0 0 0
         , Border.solid
         , Border.width 2
         , Background.color <| Element.rgb255 128 128 128
         , Element.padding 4
         , Element.spacing 4
+        , scrollbarY
         ]
+
+
+navColumnWidth : Int
+navColumnWidth =
+    200
 
 
 navColumnItem : List (Element msg) -> Element msg
@@ -224,6 +380,11 @@ navColumnButton onPress text =
         ]
 
 
+panOffsetMultiplier : Float -> Float
+panOffsetMultiplier zoom =
+    160 / zoom
+
+
 viewSvg : Model -> Html Msg
 viewSvg modelRes =
     case modelRes of
@@ -233,26 +394,28 @@ viewSvg modelRes =
         Ok model ->
             let
                 width =
-                    model.svgViewport
-                        |> Maybe.map (.viewport >> .width >> round)
-                        |> Maybe.withDefault 100
+                    round model.viewport.viewport.width - (2 * navColumnWidth)
 
                 height =
-                    model.svgViewport
-                        |> Maybe.map (.viewport >> .height >> round)
-                        |> Maybe.withDefault 100
+                    round model.viewport.viewport.height
+
+                r =
+                    String.fromFloat (900 / model.zoom)
+
+                fontSize =
+                    String.fromFloat (2000 / model.zoom)
 
                 inactiveFactories =
                     List.map
-                        (CustomSvg.drawFactory model.state.ymin model.state.ymax)
+                        (CustomSvg.drawFactory model.state.ymin model.state.ymax r fontSize)
                         (List.filter (not << .active) model.state.factories)
 
                 profitableFactories =
-                    List.map (CustomSvg.drawFactory model.state.ymin model.state.ymax)
+                    List.map (CustomSvg.drawFactory model.state.ymin model.state.ymax r fontSize)
                         (List.filter (.profitability >> (<) 0) (List.filter .active model.state.factories))
 
                 unprofitableFactories =
-                    List.map (CustomSvg.drawFactory model.state.ymin model.state.ymax)
+                    List.map (CustomSvg.drawFactory model.state.ymin model.state.ymax r fontSize)
                         (List.filter (.profitability >> (>=) 0) (List.filter .active model.state.factories))
 
                 inactiveFactoryCircles =
@@ -275,25 +438,73 @@ viewSvg modelRes =
                         |> List.filter isJust
                         |> List.map (Maybe.withDefault (Svg.text ""))
                         |> Svg.g []
+
+                strokeWidth =
+                    String.fromFloat (200 / model.zoom)
             in
             svg
-                [ Attributes.width <| String.fromInt width
-                , Attributes.height <| String.fromInt height
-                , Attributes.viewBox <|
-                    String.join " "
-                        [ String.fromInt model.state.xmin
-                        , String.fromInt model.state.ymin
-                        , String.fromInt (model.state.xmax - model.state.xmin)
-                        , String.fromInt (model.state.ymax - model.state.ymin)
-                        ]
-                ]
+                ([ Attributes.width <| String.fromInt width
+                 , Attributes.height <| String.fromInt height
+                 , Attributes.viewBox <|
+                    calculateSvgViewbox
+                        { offsetX = model.viewboxOffset.x
+                        , offsetY = model.viewboxOffset.y
+                        , draggingState = model.draggingState
+                        , zoom = model.zoom
+                        , state = model.state
+                        }
+                 , Wheel.onWheel Zooming
+                 , Pointer.onDown DownPointer
+                 , Pointer.onUp UpPointer
+                 ]
+                    ++ (if isNothing model.draggingState then
+                            []
+
+                        else
+                            [ Pointer.onMove MovePointer ]
+                       )
+                )
                 [ inactiveFactoryCircles
-                , Svg.g [] (List.map (CustomSvg.drawTransport model.state.ymin model.state.ymax) model.state.transports)
+                , Svg.g [] (List.map (CustomSvg.drawTransport model.state.ymin model.state.ymax strokeWidth) model.state.transports)
                 , unprofitableFactoryLabels
                 , profitableFactoryLabels
                 , unprofitableFactoryCircles
                 , profitableFactoryCircles
                 ]
+
+
+calculateSvgViewbox :
+    { offsetX : Float
+    , offsetY : Float
+    , draggingState : Maybe DraggingState
+    , zoom : Float
+    , state : State
+    }
+    -> String
+calculateSvgViewbox { offsetX, offsetY, draggingState, zoom, state } =
+    let
+        tempOffsetX =
+            draggingState
+                |> Maybe.map .tempOffsetX
+                |> Maybe.withDefault 0
+
+        tempOffsetY =
+            draggingState
+                |> Maybe.map .tempOffsetY
+                |> Maybe.withDefault 0
+
+        newOffsetX =
+            offsetX + tempOffsetX * panOffsetMultiplier zoom
+
+        newOffsetY =
+            offsetY + tempOffsetY * panOffsetMultiplier zoom
+    in
+    String.join " "
+        [ String.fromFloat (toFloat state.xmin + newOffsetX)
+        , String.fromFloat (toFloat state.ymin + newOffsetY)
+        , String.fromFloat (toFloat (state.xmax - state.xmin) / zoom)
+        , String.fromFloat (toFloat (state.ymax - state.ymin) / zoom)
+        ]
 
 
 type alias Flags =
@@ -307,7 +518,8 @@ main =
             \_ ->
                 ( initialModel
                 , Cmd.batch
-                    [ Task.attempt GetSvgViewport Browser.Dom.getViewport
+                    [ Task.attempt GetViewport Browser.Dom.getViewport
+                    , getRecipesCmd
                     , getStateCmd
                     ]
                 )
@@ -354,6 +566,14 @@ getResetCmd =
     Http.get
         { url = "http://localhost:28100/reset"
         , expect = Http.expectJson StateResult Types.stateDecoder
+        }
+
+
+getRecipesCmd : Cmd Msg
+getRecipesCmd =
+    Http.get
+        { url = "http://localhost:28100/recipes"
+        , expect = Http.expectJson RecipeResult (Decode.list Types.recipeDecoder)
         }
 
 
