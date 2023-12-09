@@ -5,17 +5,32 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 )
 
 type State struct {
+	Resources  []Resource  `json:"resources"`
 	Factories  []Factory   `json:"factories"`
+	Sinks      []Sink      `json:"sinks"`
 	Transports []Transport `json:"transports"`
 	Tick       int         `json:"tick"`
 	Running    bool        `json:"running"`
-	Xmin       int         `json:"xmin"`
-	Xmax       int         `json:"xmax"`
-	Ymin       int         `json:"ymin"`
-	Ymax       int         `json:"ymax"`
+	Bounds     Bounds      `json:"bounds"`
+}
+
+type Bounds struct {
+	Xmin int `json:"xmin"`
+	Xmax int `json:"xmax"`
+	Ymin int `json:"ymin"`
+	Ymax int `json:"ymax"`
+}
+
+type Resource struct {
+	Location      Location `json:"location"`
+	Recipe        string   `json:"recipe"`
+	Product       string   `json:"product"`
+	Profitability float64  `json:"profitability"`
+	Active        bool     `json:"active"`
 }
 
 type Factory struct {
@@ -23,7 +38,11 @@ type Factory struct {
 	Recipe        string   `json:"recipe"`
 	Products      []string `json:"products"`
 	Profitability float64  `json:"profitability"`
-	Active        bool     `json:"active"`
+}
+
+type Sink struct {
+	Location Location `json:"location"`
+	Label    string   `json:"label"`
 }
 
 type Transport struct {
@@ -42,18 +61,21 @@ type Server interface {
 	Tick(*slog.Logger) error
 	Run(*slog.Logger)
 	Stop(*slog.Logger)
-	Reset(*slog.Logger)
+	Reset(*slog.Logger, *slog.Level)
 	Recipes(*slog.Logger) []Recipe
+	SetRecipe(*slog.Logger, string, bool) []Recipe
 }
 
-func Serve(s Server, port string, l *slog.Logger) {
+func Serve(s Server, port string, l *slog.Logger, logLevel *slog.Level) {
 	// Setup HTTP server
 	http.HandleFunc("/state", handleState(s, l))
 	http.HandleFunc("/tick", handleTick(s, l))
 	http.HandleFunc("/run", handleRun(s, l))
 	http.HandleFunc("/stop", handleStop(s, l))
-	http.HandleFunc("/reset", handleReset(s, l))
+	http.HandleFunc("/reset", handleReset(s, l, logLevel))
 	http.HandleFunc("/recipes", handleRecipes(s, l))
+	http.HandleFunc("/recipe/", handleRecipe(s, l))
+	http.Handle("/", http.FileServer(http.Dir(".")))
 	fmt.Printf("Server running on %s\n", port)
 	if err := http.ListenAndServe(port, nil); err != nil {
 		panic(fmt.Sprintf("failed to start HTTP server: %v", err))
@@ -118,12 +140,12 @@ func handleStop(s Server, l *slog.Logger) http.HandlerFunc {
 
 // handleReset is a closure over a Server that calls Reset(). It returns the
 // initial state.
-func handleReset(s Server, l *slog.Logger) http.HandlerFunc {
+func handleReset(s Server, l *slog.Logger, logLevel *slog.Level) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		setCORSHeaders(w)
 		w.Header().Set("Content-Type", "application/json")
 
-		s.Reset(l)
+		s.Reset(l, logLevel)
 		if err := json.NewEncoder(w).Encode(s); err != nil {
 			l.Error("failed to encode state: " + err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -142,6 +164,31 @@ func handleRecipes(s Server, l *slog.Logger) http.HandlerFunc {
 			l.Error("failed to encode state: " + err.Error())
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
+	}
+}
+
+func handleRecipe(s Server, l *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		setCORSHeaders(w)
+		w.Header().Set("Content-Type", "application/json")
+
+		// Split the URL path into segments
+		pathSegments := strings.Split(r.URL.Path, "/")
+
+		// Basic validation to check if the correct number of segments are present
+		if len(pathSegments) < 4 {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// Extract the 'name' and 'set' flag from the URL
+		name := pathSegments[2]
+		setFlag := pathSegments[3]
+
+		rs := s.SetRecipe(l, name, setFlag == "1")
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(rs)
 	}
 }
 

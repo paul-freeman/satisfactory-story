@@ -3,7 +3,7 @@ module Main exposing (main)
 import Browser
 import Browser.Dom exposing (Error, Viewport)
 import Browser.Events
-import CustomSvg
+import CustomSvg exposing (mapPiece, mapPieces)
 import Dict exposing (Dict)
 import Element exposing (Element, height, scrollbarY)
 import Element.Background as Background
@@ -15,13 +15,15 @@ import Html.Events.Extra.Pointer as Pointer
 import Html.Events.Extra.Wheel as Wheel
 import Http
 import Json.Decode as Decode
+import List exposing (range)
+import List.Extra
 import Maybe.Extra exposing (isJust, isNothing)
 import Process
 import String
 import Svg exposing (svg)
 import Svg.Attributes as Attributes
 import Task
-import Types exposing (State)
+import Types exposing (Resource, State)
 
 
 type alias Model =
@@ -34,7 +36,6 @@ type alias OkModel =
     , draggingState : Maybe DraggingState
     , zoom : Float
     , recipes : List Types.Recipe
-    , activeRecipes : Dict String Bool
     , state : State
     }
 
@@ -67,7 +68,6 @@ initialModel =
         , draggingState = Nothing
         , zoom = 1
         , recipes = []
-        , activeRecipes = Dict.empty
         , state = Types.initialState
         }
 
@@ -249,13 +249,15 @@ update msg modelRes =
                 RecipeResult result ->
                     case result of
                         Ok recipes ->
-                            ( Ok { model | recipes = recipes, activeRecipes = Dict.fromList (List.map (\r -> ( r.name, True )) recipes) }, Cmd.none )
+                            ( Ok { model | recipes = recipes }, Cmd.none )
 
-                        Err _ ->
-                            ( Err "error fetching recipes", Cmd.none )
+                        Err e ->
+                            ( Err ("error fetching recipes: " ++ httpErrorToString e)
+                            , Cmd.none
+                            )
 
                 SetRecipe name set ->
-                    ( Ok { model | activeRecipes = Dict.insert name set model.activeRecipes }, Cmd.none )
+                    ( Ok model, setRecipeCmd name set )
 
 
 updateSvg : Float -> ( Float, Float ) -> OkModel -> SvgModel
@@ -265,10 +267,10 @@ updateSvg zoom offsetPos model =
             offsetPos
 
         newViewboxWidth =
-            toFloat (model.state.xmax - model.state.xmin) * zoom
+            toFloat (model.state.bounds.xmax - model.state.bounds.xmin) * zoom
 
         newViewboxHeight =
-            toFloat (model.state.ymax - model.state.ymin) * zoom
+            toFloat (model.state.bounds.ymax - model.state.bounds.ymin) * zoom
 
         widthChange =
             newViewboxWidth - model.svg.viewbox.width
@@ -295,7 +297,7 @@ updateSvg zoom offsetPos model =
     }
 
 
-stateResult : Result error State -> OkModel -> ( Result String OkModel, Cmd Msg )
+stateResult : Result Http.Error State -> OkModel -> ( Result String OkModel, Cmd Msg )
 stateResult result model =
     case result of
         Ok newState ->
@@ -305,8 +307,10 @@ stateResult result model =
             else
                 ( Ok { model | state = newState }, Cmd.none )
 
-        Err _ ->
-            ( Err "error fetching state", Cmd.none )
+        Err e ->
+            ( Err ("error fetching state: " ++ httpErrorToString e)
+            , Cmd.none
+            )
 
 
 view : Model -> Html Msg
@@ -362,8 +366,16 @@ rightNav modelRes =
         Ok model ->
             navColumn modelRes
                 ([ navColumnItem
-                    [ Element.text "Producers"
+                    [ Element.text "Resources"
+                    , Element.text <| String.fromInt <| List.length model.state.resources
+                    ]
+                 , navColumnItem
+                    [ Element.text "Factories"
                     , Element.text <| String.fromInt <| List.length model.state.factories
+                    ]
+                 , navColumnItem
+                    [ Element.text "Sinks"
+                    , Element.text <| String.fromInt <| List.length model.state.sinks
                     ]
                  , navColumnItem
                     [ Element.text "Transports"
@@ -371,24 +383,24 @@ rightNav modelRes =
                     ]
                  , navColumnItem
                     [ Element.text "Inactive"
-                    , Element.text <| String.fromInt <| List.length <| List.filter (not << .active) model.state.factories
+                    , Element.text <| String.fromInt <| List.length <| List.filter (not << .active) model.state.resources
                     ]
                  ]
                     ++ (model.recipes
-                            |> List.filter (.name >> String.startsWith "Alternate")
+                            |> List.filter (.name >> String.startsWith "Alternate:")
                             |> List.sortBy .name
-                            |> List.map (\r -> recipeCheckbox r model)
+                            |> List.map recipeCheckbox
                        )
                     ++ (model.recipes
-                            |> List.filter (.name >> String.startsWith "Alternate" >> not)
+                            |> List.filter (not << (.name >> String.startsWith "Alternate:"))
                             |> List.sortBy .name
-                            |> List.map (\r -> recipeCheckbox r model)
+                            |> List.map recipeCheckbox
                        )
                 )
 
 
-recipeCheckbox : Types.Recipe -> OkModel -> Element Msg
-recipeCheckbox recipe model =
+recipeCheckbox : Types.Recipe -> Element Msg
+recipeCheckbox recipe =
     navColumnItem
         [ Input.checkbox
             [ Element.width Element.fill
@@ -396,7 +408,7 @@ recipeCheckbox recipe model =
             ]
             { onChange = SetRecipe recipe.name
             , icon = Input.defaultCheckbox
-            , checked = Dict.get recipe.name model.activeRecipes |> Maybe.withDefault False
+            , checked = recipe.active
             , label = Input.labelRight [ Font.size 11 ] <| Element.text recipe.name
             }
         ]
@@ -467,7 +479,7 @@ viewSvg modelRes =
         Ok model ->
             let
                 width =
-                    round model.viewport.viewport.width - (2 * navColumnWidth)
+                    max 0 <| round model.viewport.viewport.width - (2 * navColumnWidth)
 
                 height =
                     round model.viewport.viewport.height
@@ -478,27 +490,42 @@ viewSvg modelRes =
                 fontSize =
                     String.fromFloat (model.svg.viewbox.width / 90)
 
-                inactiveFactories =
+                activeResources =
                     List.map
-                        (CustomSvg.drawFactory model.state.ymin model.state.ymax r fontSize)
-                        (List.filter (not << .active) model.state.factories)
+                        (CustomSvg.drawResource model.state.bounds.ymin model.state.bounds.ymax r fontSize)
+                        (List.filter .active model.state.resources)
+
+                inactiveResources =
+                    List.map
+                        (CustomSvg.drawResource model.state.bounds.ymin model.state.bounds.ymax r fontSize)
+                        (List.filter (not << .active) model.state.resources)
 
                 profitableFactories =
-                    List.map (CustomSvg.drawFactory model.state.ymin model.state.ymax r fontSize)
-                        (List.filter (.profitability >> (<) 0) (List.filter .active model.state.factories))
+                    List.map (CustomSvg.drawFactory model.state.bounds.ymin model.state.bounds.ymax r fontSize)
+                        (List.filter (.profitability >> (<) 0) model.state.factories)
 
                 unprofitableFactories =
-                    List.map (CustomSvg.drawFactory model.state.ymin model.state.ymax r fontSize)
-                        (List.filter (.profitability >> (>=) 0) (List.filter .active model.state.factories))
+                    List.map (CustomSvg.drawFactory model.state.bounds.ymin model.state.bounds.ymax r fontSize)
+                        (List.filter (.profitability >> (>=) 0) model.state.factories)
 
-                inactiveFactoryCircles =
-                    Svg.g [] <| List.map .circle inactiveFactories
+                sinks =
+                    List.map (CustomSvg.drawSink model.state.bounds.ymin model.state.bounds.ymax r fontSize)
+                        model.state.sinks
+
+                activeResourceCircles =
+                    Svg.g [] <| List.map .circle activeResources
+
+                inactiveResourceCircles =
+                    Svg.g [] <| List.map .circle inactiveResources
 
                 profitableFactoryCircles =
                     Svg.g [] <| List.map .circle profitableFactories
 
                 unprofitableFactoryCircles =
                     Svg.g [] <| List.map .circle unprofitableFactories
+
+                sinkCircles =
+                    Svg.g [] <| List.map .circle sinks
 
                 profitableFactoryLabels =
                     List.map .text profitableFactories
@@ -508,6 +535,12 @@ viewSvg modelRes =
 
                 unprofitableFactoryLabels =
                     List.map .text unprofitableFactories
+                        |> List.filter isJust
+                        |> List.map (Maybe.withDefault (Svg.text ""))
+                        |> Svg.g []
+
+                sinkLabels =
+                    List.map .text sinks
                         |> List.filter isJust
                         |> List.map (Maybe.withDefault (Svg.text ""))
                         |> Svg.g []
@@ -530,12 +563,24 @@ viewSvg modelRes =
                             [ Pointer.onMove MovePointer ]
                        )
                 )
-                [ inactiveFactoryCircles
-                , Svg.g [] (List.map (CustomSvg.drawTransport model.state.ymin model.state.ymax strokeWidth) model.state.transports)
+                [ mapPieces
+                , inactiveResourceCircles
+                , activeResourceCircles
+                , Svg.g []
+                    (List.map
+                        (CustomSvg.drawTransport
+                            model.state.bounds.ymin
+                            model.state.bounds.ymax
+                            strokeWidth
+                        )
+                        model.state.transports
+                    )
                 , unprofitableFactoryLabels
                 , profitableFactoryLabels
+                , sinkLabels
                 , unprofitableFactoryCircles
                 , profitableFactoryCircles
+                , sinkCircles
                 ]
 
 
@@ -629,6 +674,23 @@ getRecipesCmd =
         }
 
 
+setRecipeCmd : String -> Bool -> Cmd Msg
+setRecipeCmd name set =
+    Http.get
+        { url =
+            "http://localhost:28100/recipe/"
+                ++ name
+                ++ "/"
+                ++ (if set then
+                        "1"
+
+                    else
+                        "0"
+                   )
+        , expect = Http.expectJson RecipeResult (Decode.list Types.recipeDecoder)
+        }
+
+
 sleepAndPoll : Cmd Msg
 sleepAndPoll =
     Process.sleep 50
@@ -639,3 +701,22 @@ sleepAndPoll =
 subscriptions : Model -> Sub Msg
 subscriptions _ =
     Browser.Events.onResize ResizeWindow
+
+
+httpErrorToString : Http.Error -> String
+httpErrorToString err =
+    case err of
+        Http.BadUrl url ->
+            "Bad URL: " ++ url
+
+        Http.Timeout ->
+            "Request timed out"
+
+        Http.NetworkError ->
+            "Network error"
+
+        Http.BadStatus response ->
+            "Bad status: " ++ String.fromInt response
+
+        Http.BadBody message ->
+            "Bad response body: " ++ message

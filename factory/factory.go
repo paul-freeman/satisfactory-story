@@ -9,30 +9,35 @@ import (
 )
 
 type Factory struct {
-	Name string
-	loc  point.Point
+	Name        string
+	Loc         point.Point
+	CreatedTick int
 
 	Input    production.Products
 	Output   production.Products
-	duration float64
+	Duration float64
 
-	purchases []*production.Contract
-	sales     []*production.Contract
+	Purchases []*production.Contract
+	Sales     []*production.Contract
+
+	LastExpenses float64
 }
 
 func New(
 	name string,
 	loc point.Point,
+	tick int,
 	input production.Products,
 	output production.Products,
 ) *Factory {
 	return &Factory{
-		Name:      name,
-		loc:       loc,
-		Input:     input,
-		Output:    output,
-		purchases: make([]*production.Contract, 0),
-		sales:     make([]*production.Contract, 0),
+		Name:        name,
+		Loc:         loc,
+		CreatedTick: tick,
+		Input:       input,
+		Output:      output,
+		Purchases:   make([]*production.Contract, 0),
+		Sales:       make([]*production.Contract, 0),
 	}
 }
 
@@ -48,10 +53,10 @@ func (f *Factory) IsRemovable() bool {
 
 // Remove implements producer.
 func (f *Factory) Remove() error {
-	for _, sale := range f.sales {
+	for _, sale := range f.Sales {
 		sale.Cancel()
 	}
-	for _, purchase := range f.purchases {
+	for _, purchase := range f.Purchases {
 		purchase.Cancel()
 	}
 	return nil
@@ -59,7 +64,7 @@ func (f *Factory) Remove() error {
 
 // Location implements producer.
 func (f *Factory) Location() point.Point {
-	return f.loc
+	return f.Loc
 }
 
 // SalesPriceFor is the price of a sale.
@@ -68,7 +73,7 @@ func (f *Factory) Location() point.Point {
 // cost. All of this is marked up by 50%
 func (f *Factory) SalesPriceFor(order production.Production, transportCost float64) float64 {
 	purchaseCosts := 0.0
-	for _, purchase := range f.purchases {
+	for _, purchase := range f.Purchases {
 		if !purchase.Cancelled {
 			purchaseCosts += purchase.ProductCost
 		}
@@ -98,23 +103,23 @@ func (f *Factory) Profit() float64 {
 
 	// Review sales
 	newSales := make([]*production.Contract, 0)
-	for _, sale := range f.sales {
+	for _, sale := range f.Sales {
 		if !sale.Cancelled {
 			profit += sale.TransportCost
 			newSales = append(newSales, sale)
 		}
 	}
-	f.sales = newSales
+	f.Sales = newSales
 
 	// Review purchases
 	newPurchases := make([]*production.Contract, 0)
-	for _, purchase := range f.purchases {
+	for _, purchase := range f.Purchases {
 		if !purchase.Cancelled {
 			profit -= purchase.TransportCost
 			newPurchases = append(newPurchases, purchase)
 		}
 	}
-	f.purchases = newPurchases
+	f.Purchases = newPurchases
 
 	return profit
 }
@@ -122,13 +127,13 @@ func (f *Factory) Profit() float64 {
 func (f *Factory) Profitability() float64 {
 	income := 0.0
 	expenses := 0.0
-	for _, sale := range f.sales {
+	for _, sale := range f.Sales {
 		if !sale.Cancelled {
 			income += sale.ProductCost
 			expenses += sale.TransportCost
 		}
 	}
-	for _, purchase := range f.purchases {
+	for _, purchase := range f.Purchases {
 		if !purchase.Cancelled {
 			expenses += purchase.ProductCost
 			expenses += purchase.TransportCost
@@ -144,48 +149,50 @@ func (f *Factory) String() string {
 
 // SignAsBuyer implements production.Producer.
 func (f *Factory) SignAsBuyer(contract *production.Contract) error {
-	f.purchases = append(f.purchases, contract)
+	f.Purchases = append(f.Purchases, contract)
 	return nil
 }
 
 // SignAsSeller implements production.Producer.
 func (f *Factory) SignAsSeller(contract *production.Contract) error {
-	f.sales = append(f.sales, contract)
+	f.Sales = append(f.Sales, contract)
 	return nil
 }
 
 // ContractsIn implements production.Producer.
 func (f *Factory) ContractsIn() []*production.Contract {
-	return f.purchases
+	return f.Purchases
 }
 
 func (f *Factory) Move() error {
-	up := f.loc.Up(1)
-	down := f.loc.Down(1)
-	left := f.loc.Left(1)
-	right := f.loc.Right(1)
+	up := f.Loc.Up(1)
+	down := f.Loc.Down(1)
+	left := f.Loc.Left(1)
+	right := f.Loc.Right(1)
 
-	costsHere := f.transportCostsAt(f.loc)
+	costsHere := f.transportCostsAt(f.Loc)
 	costsUp := f.transportCostsAt(up)
 	costsDown := f.transportCostsAt(down)
 	costsLeft := f.transportCostsAt(left)
 	costsRight := f.transportCostsAt(right)
-	if costsUp < costsHere && costsUp <= costsDown && costsUp <= costsLeft && costsUp <= costsRight {
-		f.moveTo(f.loc.Up(max(1, min(100, int(100000*(costsHere-costsUp))))))
+
+	if costsUp <= costsHere && costsUp <= costsDown && costsUp <= costsLeft && costsUp <= costsRight {
+		f.moveTo(f.Loc.Up(max(1, min(100, int(100000*(costsHere-costsUp)))))) // TODO: make this a function of the distance
 		return nil
 	}
-	if costsUp < costsHere && costsDown <= costsUp && costsDown <= costsLeft && costsDown <= costsRight {
-		f.moveTo(f.loc.Down(max(1, min(100, int(100000*(costsHere-costsDown))))))
+	if costsDown <= costsHere && costsDown <= costsUp && costsDown <= costsLeft && costsDown <= costsRight {
+		f.moveTo(f.Loc.Down(max(1, min(100, int(100000*(costsHere-costsDown)))))) // TODO: make this a function of the distance
 		return nil
 	}
-	if costsUp < costsHere && costsLeft <= costsUp && costsLeft <= costsDown && costsLeft <= costsRight {
-		f.moveTo(f.loc.Left(max(1, min(100, int(100000*(costsHere-costsLeft))))))
+	if costsLeft <= costsHere && costsLeft <= costsUp && costsLeft <= costsDown && costsLeft <= costsRight {
+		f.moveTo(f.Loc.Left(max(1, min(100, int(100000*(costsHere-costsLeft)))))) // TODO: make this a function of the distance
 		return nil
 	}
-	if costsUp < costsHere && costsRight <= costsUp && costsRight <= costsDown && costsRight <= costsLeft {
-		f.moveTo(f.loc.Right(max(1, min(100, int(100000*(costsHere-costsRight))))))
+	if costsRight <= costsHere && costsRight <= costsUp && costsRight <= costsDown && costsRight <= costsLeft {
+		f.moveTo(f.Loc.Right(max(1, min(100, int(100000*(costsHere-costsRight)))))) // TODO: make this a function of the distance
 		return nil
 	}
+
 	return nil
 }
 
@@ -193,21 +200,21 @@ var _ production.Producer = (*Factory)(nil)
 
 func (f *Factory) transportCostsAt(p point.Point) float64 {
 	c := 0.0
-	for _, sale := range f.sales {
+	for _, sale := range f.Sales {
 		c += recipes.TransportCost(sale.Buyer.Location(), p)
 	}
-	for _, purchase := range f.purchases {
+	for _, purchase := range f.Purchases {
 		c += recipes.TransportCost(p, purchase.Seller.Location())
 	}
 	return c
 }
 
 func (f *Factory) moveTo(loc point.Point) {
-	f.loc = loc
-	for _, sale := range f.sales {
+	f.Loc = loc
+	for _, sale := range f.Sales {
 		sale.TransportCost = recipes.TransportCost(loc, sale.Buyer.Location())
 	}
-	for _, purchase := range f.purchases {
+	for _, purchase := range f.Purchases {
 		purchase.TransportCost = recipes.TransportCost(purchase.Seller.Location(), loc)
 	}
 	return

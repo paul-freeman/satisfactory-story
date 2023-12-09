@@ -16,7 +16,8 @@ func Test_state_Tick(t *testing.T) {
 			Level:       slog.LevelInfo,
 			ReplaceAttr: removeTimeAndLevel,
 		}))
-		testState, err := New(l, 11)
+		logLevel := new(slog.Level)
+		testState, err := New(l, logLevel, 11)
 		assert.NoError(t, err, "failed to create state")
 		assert.NotEqual(t, 0, testState.xmin, "xmin should not be 0")
 		assert.NotEqual(t, 0, testState.xmax, "xmax should not be 0")
@@ -58,7 +59,8 @@ func Test_state_Tick(t *testing.T) {
 		}))
 		seed := int64(52)
 
-		testState, err := New(l, seed)
+		logLevel := new(slog.Level)
+		testState, err := New(l, logLevel, seed)
 		assert.NoError(t, err, "failed to create state")
 		err = testState.Tick(l)
 		assert.NoError(t, err, "failed to tick state")
@@ -70,7 +72,8 @@ func Test_state_Tick(t *testing.T) {
 		}))
 		seed := int64(52)
 
-		testState, err := New(l, seed)
+		logLevel := new(slog.Level)
+		testState, err := New(l, logLevel, seed)
 		assert.NoError(t, err, "failed to create state")
 		for i := 0; i < 1000; i++ {
 			err = testState.Tick(l)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
@@ -31,16 +32,25 @@ func New() (Recipes, error) {
 		return nil, fmt.Errorf("failed to decode: %w", err)
 	}
 
+	for _, r := range rs {
+		if strings.HasPrefix(r.DisplayName, "Alternate:") {
+			continue
+		}
+
+		r.Active = true
+	}
+
 	return rs, nil
 }
 
-type Recipes []Recipe
+type Recipes []*Recipe
 
 type Recipe struct {
 	DisplayName    string
 	ProducedIn     Producer
 	InputProducts  production.Products
 	OutputProducts production.Products
+	Active         bool
 }
 
 type recipeJSON struct {
@@ -49,16 +59,17 @@ type recipeJSON struct {
 	InputProducts  production.Products `json:"mIngredients"`
 	OutputProducts production.Products `json:"mProduct"`
 	DurationStr    floatString         `json:"mManufactoringDuration"`
+	Active         bool                `json:"active"`
 }
 
-func (j recipeJSON) toRecipe() Recipe {
-	r := Recipe{
+func (j recipeJSON) toRecipe() *Recipe {
+	r := &Recipe{
 		DisplayName:    j.DisplayName,
 		ProducedIn:     j.ProducedIn,
 		InputProducts:  j.InputProducts,
 		OutputProducts: j.OutputProducts,
 	}
-	// TODO: We update the rate here. We originally set the rate the amount
+	// TODO: We update the rate here. We originally set the rate to the amount
 	// produced, which is not correct. But now that we know the duration, we can
 	// set the rate correctly.
 	for i := range r.InputProducts {

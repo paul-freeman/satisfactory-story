@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,20 +12,17 @@ import (
 )
 
 func main() {
-	var verbose bool
-	flag.BoolVar(&verbose, "v", false, "Enable verbose logging")
-	flag.Parse()
-
 	// Create state
-	l := makeLogger(verbose)
+	logLevel := new(slog.Level)
+	l := makeLogger(logLevel)
 	seed := int64(152)
-	s, err := state.New(l, seed)
+	s, err := state.New(l, logLevel, seed)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create state: %v", err))
 	}
 
 	// Start HTTP server
-	go http.Serve(s, ":28100", l)
+	go http.Serve(s, ":28100", l, logLevel)
 
 	// Listen for Ctrl+C
 	c := make(chan os.Signal, 1)
@@ -38,23 +34,15 @@ func main() {
 	os.Exit(0)
 }
 
-func makeLogger(verbose bool) *slog.Logger {
-	if verbose {
-		return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
-	}
+func makeLogger(logLevel *slog.Level) *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level:       slog.LevelInfo,
+		Level:       logLevel,
 		ReplaceAttr: removeTimeAndLevel,
 	}))
 }
 
 func removeTimeAndLevel(_ []string, a slog.Attr) slog.Attr {
 	if a.Key == "time" {
-		return slog.Attr{}
-	}
-	if a.Key == "level" {
 		return slog.Attr{}
 	}
 	return a

@@ -15,12 +15,15 @@ import (
 	"github.com/paul-freeman/satisfactory-story/production"
 	"github.com/paul-freeman/satisfactory-story/recipes"
 	"github.com/paul-freeman/satisfactory-story/resources"
+	storyresources "github.com/paul-freeman/satisfactory-story/resources"
+	"github.com/paul-freeman/satisfactory-story/sink"
 	statehttp "github.com/paul-freeman/satisfactory-story/state/http"
 )
 
 const (
-	borderPaddingPct   = 0.1
-	minProducersToKeep = 5
+	borderPaddingPct        = 0.1
+	lifetime                = 6000
+	simulatedAnnealingTicks = 3000
 )
 
 type State struct {
@@ -29,6 +32,7 @@ type State struct {
 	producers []production.Producer
 	recipes   recipes.Recipes
 	market    map[string]float64
+	sinks     map[string]int
 
 	seed   int64
 	tick   int
@@ -40,15 +44,17 @@ type State struct {
 	xmax int
 	ymin int
 	ymax int
+
+	logLevel *slog.Level
 }
 
-func New(l *slog.Logger, seed int64) (*State, error) {
+func New(l *slog.Logger, logLevel *slog.Level, seed int64) (*State, error) {
 	s := new(State)
-	err := s.getInitialState(l, seed)
+	err := s.getInitialState(l, logLevel, seed)
 	return s, err
 }
 
-func (s *State) getInitialState(l *slog.Logger, seed int64) error {
+func (s *State) getInitialState(l *slog.Logger, logLevel *slog.Level, seed int64) error {
 	// Load resources and recipes
 	resources, err := resources.New()
 	if err != nil {
@@ -80,10 +86,15 @@ func (s *State) getInitialState(l *slog.Logger, seed int64) error {
 		}
 	}
 
+	// Create sinks
+	sinks := map[string]int{
+		"SpaceElevatorPart_1": 1,
+	}
+
 	// Create producers
-	producers := make([]production.Producer, len(resources))
-	for i, resource := range resources {
-		producers[i] = resource
+	producers := make([]production.Producer, 0)
+	for _, resource := range resources {
+		producers = append(producers, resource)
 	}
 
 	borderPaddingX := float64(xmax-xmin) * borderPaddingPct
@@ -93,6 +104,7 @@ func (s *State) getInitialState(l *slog.Logger, seed int64) error {
 	s.producers = producers
 	s.recipes = recipes
 	s.market = make(map[string]float64)
+	s.sinks = sinks
 
 	s.seed = seed
 	s.tick = 0
@@ -105,6 +117,8 @@ func (s *State) getInitialState(l *slog.Logger, seed int64) error {
 	s.ymin = int(float64(ymin) - borderPaddingY)
 	s.ymax = int(float64(ymax) + borderPaddingY)
 
+	s.logLevel = logLevel
+
 	return nil
 }
 
@@ -116,16 +130,21 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 	s.tick++
 	l := parentLogger.With(slog.Int("tick", s.tick))
 
-	s.removeUnprofitableProducers(l)
-	s.spawnNewProducers(l)
-	s.moveProducer(l)
+	switch (s.tick / simulatedAnnealingTicks) % 3 {
+	case 0:
+		s.spawnNewProducers(l)
+	case 1:
+		s.moveProducer(l)
+	case 2:
+		s.removeUnprofitableProducers(l)
+	}
 
 	return nil
 }
 
 func (s *State) Run(parentLogger *slog.Logger) {
 	// Set logger
-	logger := parentLogger.With(slog.Bool("running", true))
+	l := parentLogger.With(slog.Bool("running", true))
 
 	// Create cancellation context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -133,14 +152,14 @@ func (s *State) Run(parentLogger *slog.Logger) {
 
 	// Run simulation
 	go func() {
-		defer s.setCancellationFunc(nil, logger)
+		defer s.setCancellationFunc(nil, l)
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				if err := s.Tick(logger); err != nil {
-					logger.Error(fmt.Sprintf("failed to tick state: %v", err))
+				if err := s.Tick(l); err != nil {
+					l.Error(fmt.Sprintf("failed to tick state: %v", err))
 					return
 				}
 			}
@@ -156,10 +175,10 @@ func (s *State) Stop(_ *slog.Logger) {
 	}
 }
 
-func (s *State) Reset(l *slog.Logger) {
+func (s *State) Reset(l *slog.Logger, logLevel *slog.Level) {
 	s.m.Lock()
 	defer s.m.Unlock()
-	s.getInitialState(l, s.seed)
+	s.getInitialState(l, s.logLevel, s.seed)
 }
 
 func (s *State) Recipes(_ *slog.Logger) []statehttp.Recipe {
@@ -179,9 +198,32 @@ func (s *State) Recipes(_ *slog.Logger) []statehttp.Recipe {
 					Rate: recipe.Outputs()[0].Rate,
 				},
 			},
+			Active: recipe.Active,
 		})
 	}
+
 	return recipes
+}
+
+func (s *State) SetRecipe(l *slog.Logger, recipeName string, enabled bool) []statehttp.Recipe {
+	// Find recipe
+	for _, r := range s.recipes {
+		if r.DisplayName == recipeName {
+			r.Active = enabled
+		}
+	}
+
+	if !enabled {
+		// Remove all producers using this recipe
+		for _, p := range s.producers {
+			f, ok := p.(*factory.Factory)
+			if ok && f.Name == recipeName {
+				f.Remove()
+			}
+		}
+	}
+
+	return s.Recipes(l)
 }
 
 func (s *State) setCancellationFunc(cancel context.CancelFunc, logger *slog.Logger) {
@@ -225,42 +267,61 @@ func (s *State) removeUnprofitableProducers(l *slog.Logger) {
 		})
 	}
 
-	// Remove unprofitable producers
+	// See what we can remove
 	finalProducers := make([]production.Producer, 0, len(s.producers))
 	for _, statsGroup := range groupedStats {
 		for i, val := range statsGroup {
-			switch v := val.producer.(type) {
-			case *factory.Factory:
-				func() {
-					for _, contract := range v.ContractsIn() {
-						if contract.Cancelled {
-							v.Remove()
-							return
-						}
-					}
-					if len(v.ContractsIn()) != len(v.Input) {
-						v.Remove()
-						return
-					}
-					if i < minProducersToKeep {
-						finalProducers = append(finalProducers, val.producer)
-						return
-					}
-					if len(v.ContractsIn()) == 0 {
-						v.Remove()
-						return
-					}
-					if val.profit <= 0 {
-						v.Remove()
-						return
-					}
-					// Keep producer
-					finalProducers = append(finalProducers, val.producer)
-				}()
-			default:
-				// Cannot remove immovable producer, so just keep it.
+			f, ok := val.producer.(*factory.Factory)
+			if !ok {
 				finalProducers = append(finalProducers, statsGroup[i].producer)
+				continue
 			}
+
+			func() {
+				for _, contract := range f.ContractsIn() {
+					if contract.Cancelled {
+						l.Debug("removing factory with cancelled contract", slog.String("factory", f.String()))
+						f.Remove()
+						return
+					}
+				}
+				if len(f.ContractsIn()) != len(f.Input) {
+					l.Debug("removing factory with incomplete contracts", slog.String("factory", f.String()))
+					f.Remove()
+					return
+				}
+				if len(f.ContractsIn()) == 0 {
+					l.Debug("removing factory with no contracts", slog.String("factory", f.String()))
+					f.Remove()
+					return
+				}
+				if f.CreatedTick+lifetime >= s.tick {
+					finalProducers = append(finalProducers, statsGroup[i].producer)
+					return
+				}
+				if i < s.sinks[f.Products().Key()] {
+					finalProducers = append(finalProducers, val.producer)
+					return
+				}
+				numSales := 0
+				for _, sale := range f.Sales {
+					if !sale.Cancelled {
+						numSales++
+					}
+				}
+				if numSales != 0 {
+					finalProducers = append(finalProducers, val.producer)
+					return
+				}
+				if val.profit <= 0 {
+					l.Debug("removing unprofitable factory", slog.String("factory", f.String()))
+					f.Remove()
+					return
+				}
+
+				// Keep producer
+				finalProducers = append(finalProducers, val.producer)
+			}()
 		}
 	}
 
@@ -280,8 +341,15 @@ func (s *State) spawnNewProducers(l *slog.Logger) {
 		Y: s.randSrc.Intn(s.ymax-s.ymin) + s.ymin,
 	}
 
+	activeRecipes := make([]*recipes.Recipe, 0)
+	for _, recipe := range s.recipes {
+		if recipe.Active {
+			activeRecipes = append(activeRecipes, recipe)
+		}
+	}
+
 	// Select a recipe for the new producer
-	recipe := s.recipes[s.randSrc.Intn(len(s.recipes))]
+	recipe := activeRecipes[s.randSrc.Intn(len(activeRecipes))]
 
 	// Find the cheapest source of each input product
 	sources, err := recipe.SourceProducts(l, s.producers, loc)
@@ -291,7 +359,7 @@ func (s *State) spawnNewProducers(l *slog.Logger) {
 	}
 
 	// Add the new producer
-	newFactory := factory.New(recipe.Name(), loc, recipe.Inputs(), recipe.Outputs())
+	newFactory := factory.New(recipe.Name(), loc, s.tick, recipe.Inputs(), recipe.Outputs())
 	for _, source := range sources {
 		s.writeContract(l, source.Seller, newFactory, source.Order, source.TransportCost)
 	}
@@ -385,83 +453,155 @@ func (s *State) MarshalJSON() ([]byte, error) {
 }
 
 func (s *State) toHTTP() statehttp.State {
+	resources := make([]statehttp.Resource, 0)
 	factories := make([]statehttp.Factory, 0)
 	transports := make([]statehttp.Transport, 0)
-	for _, producer := range s.producers {
-		active := true
-		resource, ok := producer.(*resources.Resource)
-		if ok {
+	sinks := make([]statehttp.Sink, 0)
+	for _, p := range s.producers {
+		switch producer := p.(type) {
+		case *storyresources.Resource:
+			active := true
+
 			newSales := make([]*production.Contract, 0)
-			for _, sale := range resource.Sales {
+			for _, sale := range producer.Sales {
 				if !sale.Cancelled {
 					newSales = append(newSales, sale)
 				}
 			}
-			resource.Sales = newSales
-			if len(resource.Sales) == 0 {
+			producer.Sales = newSales
+			if len(producer.Sales) == 0 {
 				active = false
 			}
-		}
 
-		// List producer products
-		products := make([]string, 0)
-		for _, product := range producer.Products() {
-			products = append(products, product.Name)
-		}
+			// List resource products
+			products := make([]string, 0)
+			for _, product := range producer.Products() {
+				products = append(products, product.Name)
+			}
+			if len(products) != 1 {
+				panic(fmt.Sprintf("resource %s has %d products", producer.PrettyPrint(), len(products)))
+			}
 
-		// Append factory with list of products
-		profitability := producer.Profitability()
-		if math.IsNaN(profitability) {
-			profitability = 0
-		}
-		recipe := "EMPTY"
-		numContracts := len(producer.ContractsIn())
-		switch val := producer.(type) {
+			// Append factory with list of products
+			profitability := producer.Profitability()
+			if math.IsNaN(profitability) {
+				profitability = 0
+			}
+
+			numContracts := len(producer.ContractsIn())
+
+			// Create the resource object for sending.
+			resource := statehttp.Resource{
+				Location: statehttp.Location{
+					X: producer.Location().X,
+					Y: producer.Location().Y,
+				},
+				Recipe:        producer.Production.Name + fmt.Sprintf(" (%d)", numContracts),
+				Product:       products[0],
+				Profitability: profitability,
+				Active:        active,
+			}
+
+			resources = append(resources, resource)
 		case *factory.Factory:
-			recipe = val.Name
-		case *resources.Resource:
-			recipe = val.Production.Name
-		}
-		factory := statehttp.Factory{
-			Location: statehttp.Location{
-				X: producer.Location().X,
-				Y: producer.Location().Y,
-			},
-			Recipe:        recipe + fmt.Sprintf(" (%d)", numContracts),
-			Products:      products,
-			Profitability: profitability,
-			Active:        active,
-		}
-		factories = append(factories, factory)
+			// List producer products
+			products := make([]string, 0)
+			for _, product := range producer.Products() {
+				products = append(products, product.Name)
+			}
 
-		// List incoming transports
-		for _, contract := range producer.ContractsIn() {
-			rate := contract.Order.Rate
-			if math.IsNaN(rate) {
-				rate = 0
+			// Append factory with list of products
+			profitability := producer.Profitability()
+			if math.IsNaN(profitability) {
+				profitability = 0
 			}
-			transport := statehttp.Transport{
-				Origin: statehttp.Location{
-					X: contract.Seller.Location().X,
-					Y: contract.Seller.Location().Y,
+
+			numContracts := len(producer.ContractsIn())
+
+			// Create the factory object for sending.
+			factory := statehttp.Factory{
+				Location: statehttp.Location{
+					X: producer.Location().X,
+					Y: producer.Location().Y,
 				},
-				Destination: statehttp.Location{
-					X: contract.Buyer.Location().X,
-					Y: contract.Buyer.Location().Y,
-				},
-				Rate: rate,
+				Recipe:        producer.Name + fmt.Sprintf(" (%d)", numContracts),
+				Products:      products,
+				Profitability: profitability,
 			}
-			transports = append(transports, transport)
+			factories = append(factories, factory)
+
+			// List incoming transports
+			for _, contract := range producer.ContractsIn() {
+				rate := contract.Order.Rate
+				if math.IsNaN(rate) {
+					rate = 0
+				}
+				transport := statehttp.Transport{
+					Origin: statehttp.Location{
+						X: contract.Seller.Location().X,
+						Y: contract.Seller.Location().Y,
+					},
+					Destination: statehttp.Location{
+						X: contract.Buyer.Location().X,
+						Y: contract.Buyer.Location().Y,
+					},
+					Rate: rate,
+				}
+				transports = append(transports, transport)
+			}
+		case *sink.Sink:
+			profitability := producer.Profitability()
+
+			label := producer.Name + fmt.Sprintf(" Sink (%.2f)", profitability)
+			if profitability == math.MaxFloat64 {
+				label = producer.Name + " Sink (max)"
+			}
+
+			sink := statehttp.Sink{
+				Location: statehttp.Location{
+					X: producer.Location().X,
+					Y: producer.Location().Y,
+				},
+				Label: label,
+			}
+			sinks = append(sinks, sink)
+
+			// List incoming transports
+			for _, contract := range producer.ContractsIn() {
+				rate := contract.Order.Rate
+				if math.IsNaN(rate) {
+					rate = 0
+				}
+				transport := statehttp.Transport{
+					Origin: statehttp.Location{
+						X: contract.Seller.Location().X,
+						Y: contract.Seller.Location().Y,
+					},
+					Destination: statehttp.Location{
+						X: contract.Buyer.Location().X,
+						Y: contract.Buyer.Location().Y,
+					},
+					Rate: rate,
+				}
+				transports = append(transports, transport)
+			}
 		}
 	}
+
+	bounds := statehttp.Bounds{
+		Xmin: s.xmin,
+		Xmax: s.xmax,
+		Ymin: s.ymin,
+		Ymax: s.ymax,
+	}
+
 	return statehttp.State{
+		Resources:  resources,
 		Factories:  factories,
 		Transports: transports,
+		Sinks:      sinks,
 		Tick:       s.tick,
 		Running:    s.cancel != nil,
-		Xmin:       s.xmin,
-		Xmax:       s.xmax,
-		Ymin:       s.ymin,
-		Ymax:       s.ymax,
+		Bounds:     bounds,
 	}
 }
