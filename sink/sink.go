@@ -100,6 +100,12 @@ func (f *Sink) Profitability() float64 {
 	return income / expenses
 }
 
+// Cash reports an effectively infinite balance -- sinks are never removed
+// for insolvency.
+func (f *Sink) Cash() float64 {
+	return math.MaxFloat64
+}
+
 // String implements producer.
 func (f *Sink) String() string {
 	return fmt.Sprintf("%s [%s]", f.Name, f.Input.Key())

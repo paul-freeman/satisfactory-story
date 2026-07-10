@@ -359,7 +359,7 @@ func (s *State) spawnNewProducers(l *slog.Logger) {
 	}
 
 	// Add the new producer
-	newFactory := factory.New(recipe.Name(), loc, s.tick, recipe.Inputs(), recipe.Outputs())
+	newFactory := factory.New(recipe.Name(), loc, s.tick, recipe.Inputs(), recipe.Outputs(), 0)
 	for _, source := range sources {
 		s.writeContract(l, source.Seller, newFactory, source.Order, source.TransportCost)
 	}

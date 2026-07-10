@@ -20,7 +20,7 @@ type Factory struct {
 	Purchases []*production.Contract
 	Sales     []*production.Contract
 
-	LastExpenses float64
+	production.Wallet
 }
 
 func New(
@@ -29,6 +29,7 @@ func New(
 	tick int,
 	input production.Products,
 	output production.Products,
+	seedCapital float64,
 ) *Factory {
 	return &Factory{
 		Name:        name,
@@ -38,6 +39,7 @@ func New(
 		Output:      output,
 		Purchases:   make([]*production.Contract, 0),
 		Sales:       make([]*production.Contract, 0),
+		Wallet:      production.NewWallet(seedCapital),
 	}
 }
 

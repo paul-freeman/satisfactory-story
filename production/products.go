@@ -20,6 +20,10 @@ type Producer interface {
 	Profit() float64
 	// Profitability returns the profitability of the producer.
 	Profitability() float64
+	// Cash returns the producer's current cash balance. Resources and
+	// sinks report an effectively infinite balance since they never go
+	// bankrupt; Factory reports its real Wallet balance.
+	Cash() float64
 	// HasCapacityFor returns true if the producer produces the given product at
 	// the given rate.
 	HasCapacityFor(Production) error

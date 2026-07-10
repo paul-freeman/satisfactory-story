@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/paul-freeman/satisfactory-story/point"
@@ -127,6 +128,12 @@ func (r Resource) Profitability() float64 {
 		}
 	}
 	return income / expenses
+}
+
+// Cash reports an effectively infinite balance -- raw resource nodes are
+// never removed for insolvency.
+func (r *Resource) Cash() float64 {
+	return math.MaxFloat64
 }
 
 // SignAsBuyer implements production.Producer.
