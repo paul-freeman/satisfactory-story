@@ -24,6 +24,10 @@ type Producer interface {
 	// sinks report an effectively infinite balance since they never go
 	// bankrupt; Factory reports its real Wallet balance.
 	Cash() float64
+	// RemainingCapacityFor returns how much of the given product this
+	// producer could still sell (0 if it doesn't produce that product or
+	// has none left).
+	RemainingCapacityFor(name string) float64
 	// HasCapacityFor returns true if the producer produces the given product at
 	// the given rate.
 	HasCapacityFor(Production) error

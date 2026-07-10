@@ -155,29 +155,32 @@ func (r *Resource) SalesPriceFor(order production.Production, transportCost floa
 	return transportCost * 1.50 // 50% profit
 }
 
+// RemainingCapacityFor returns how much of the given product this resource
+// could still sell, after subtracting rate already committed to active
+// sales. Returns 0 if the resource doesn't produce that product.
+func (r *Resource) RemainingCapacityFor(name string) float64 {
+	if name != r.Production.Name {
+		return 0
+	}
+	rate := r.Production.Rate
+	for _, sale := range r.Sales {
+		if sale.Cancelled || sale.Order.Name != name {
+			continue
+		}
+		rate -= sale.Order.Rate
+	}
+	if rate < 0 {
+		return 0
+	}
+	return rate
+}
+
 // HasCapacityFor implements production.Producer.
 func (r *Resource) HasCapacityFor(order production.Production) error {
 	if order.Rate <= 0 {
 		return fmt.Errorf("production rate must be positive")
 	}
-
-	// Check current sales
-	rate := r.Production.Rate
-	for _, sale := range r.Sales {
-		if sale.Cancelled {
-			continue
-		}
-		if sale.Order.Name != r.Production.Name || order.Name != r.Production.Name {
-			continue
-		}
-		rate -= sale.Order.Rate
-	}
-
-	// Check new order
-	if order.Name != r.Production.Name {
-		return fmt.Errorf("resource %s cannot produce %s", r.PrettyPrint(), order.Key())
-	}
-	if rate < order.Rate {
+	if order.Rate > r.RemainingCapacityFor(order.Name) {
 		return fmt.Errorf("resource %s cannot produce %s at rate %f", r.PrettyPrint(), order.Key(), order.Rate)
 	}
 	return nil

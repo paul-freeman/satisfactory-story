@@ -83,13 +83,41 @@ func (f *Factory) SalesPriceFor(order production.Production, transportCost float
 	return (purchaseCosts + transportCost) * 1.50 // 50% profit
 }
 
+// RemainingCapacityFor returns how much of the given product this factory
+// could still sell, after subtracting rate already committed to active
+// sales. Returns 0 if the factory doesn't produce that product.
+func (f *Factory) RemainingCapacityFor(name string) float64 {
+	var rate float64
+	found := false
+	for _, output := range f.Output {
+		if output.Name == name {
+			rate = output.Rate
+			found = true
+			break
+		}
+	}
+	if !found {
+		return 0
+	}
+	for _, sale := range f.Sales {
+		if sale.Cancelled || sale.Order.Name != name {
+			continue
+		}
+		rate -= sale.Order.Rate
+	}
+	if rate < 0 {
+		return 0
+	}
+	return rate
+}
+
 // HasCapacityFor implements producer.
 func (f *Factory) HasCapacityFor(order production.Production) error {
 	if order.Rate <= 0 {
 		return fmt.Errorf("production rate must be positive")
 	}
-	if !f.Output.Contains(order.Name) {
-		return fmt.Errorf("factory %s cannot produce %s", f.String(), order.Key())
+	if order.Rate > f.RemainingCapacityFor(order.Name) {
+		return fmt.Errorf("factory %s cannot produce %s at rate %f", f.String(), order.Key(), order.Rate)
 	}
 	return nil
 }

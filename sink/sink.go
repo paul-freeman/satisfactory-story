@@ -55,6 +55,12 @@ func (f *Sink) SalesPriceFor(order production.Production, transportCost float64)
 	return math.MaxFloat64
 }
 
+// RemainingCapacityFor implements production.Producer. Sinks never sell
+// anything, so they always report zero remaining capacity.
+func (f *Sink) RemainingCapacityFor(_ string) float64 {
+	return 0
+}
+
 // HasCapacityFor implements producer.
 func (f *Sink) HasCapacityFor(order production.Production) error {
 	return fmt.Errorf("sink %s cannot produce anything", f.String())
