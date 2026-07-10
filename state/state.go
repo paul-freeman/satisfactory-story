@@ -33,7 +33,6 @@ type State struct {
 	recipes   recipes.Recipes
 	market    map[string]float64
 	unmet     map[string]float64
-	sinks     map[string]int
 
 	seed   int64
 	tick   int
@@ -87,26 +86,27 @@ func (s *State) getInitialState(l *slog.Logger, logLevel *slog.Level, seed int64
 		}
 	}
 
-	// Create sinks
-	sinks := map[string]int{
-		"SpaceElevatorPart_1": 1,
-	}
+	borderPaddingX := float64(xmax-xmin) * borderPaddingPct
+	borderPaddingY := float64(ymax-ymin) * borderPaddingPct
+	paddedXmin := int(float64(xmin) - borderPaddingX)
+	paddedXmax := int(float64(xmax) + borderPaddingX)
+	paddedYmin := int(float64(ymin) - borderPaddingY)
+	paddedYmax := int(float64(ymax) + borderPaddingY)
 
 	// Create producers
 	producers := make([]production.Producer, 0)
 	for _, resource := range resources {
 		producers = append(producers, resource)
 	}
-
-	borderPaddingX := float64(xmax-xmin) * borderPaddingPct
-	borderPaddingY := float64(ymax-ymin) * borderPaddingPct
+	for _, sk := range newSinks(recipes, paddedXmin, paddedXmax, paddedYmin, paddedYmax) {
+		producers = append(producers, sk)
+	}
 
 	// Populate state
 	s.producers = producers
 	s.recipes = recipes
 	s.market = make(map[string]float64)
 	s.unmet = make(map[string]float64)
-	s.sinks = sinks
 
 	s.seed = seed
 	s.tick = 0
@@ -114,10 +114,10 @@ func (s *State) getInitialState(l *slog.Logger, logLevel *slog.Level, seed int64
 
 	s.randSrc = rand.New(rand.NewSource(seed))
 
-	s.xmin = int(float64(xmin) - borderPaddingX)
-	s.xmax = int(float64(xmax) + borderPaddingX)
-	s.ymin = int(float64(ymin) - borderPaddingY)
-	s.ymax = int(float64(ymax) + borderPaddingY)
+	s.xmin = paddedXmin
+	s.xmax = paddedXmax
+	s.ymin = paddedYmin
+	s.ymax = paddedYmax
 
 	s.logLevel = logLevel
 
@@ -301,7 +301,7 @@ func (s *State) removeUnprofitableProducers(l *slog.Logger) {
 					finalProducers = append(finalProducers, statsGroup[i].producer)
 					return
 				}
-				if i < s.sinks[f.Products().Key()] {
+				if i < 0 {
 					finalProducers = append(finalProducers, val.producer)
 					return
 				}

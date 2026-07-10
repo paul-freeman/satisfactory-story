@@ -29,6 +29,12 @@ func Test_state_Tick(t *testing.T) {
 				if product.Name == "sam" || product.Name == "geyser" {
 					continue
 				}
+				// Sink-wanted products (e.g. space elevator parts) are
+				// terminal by design -- they are recipe outputs, not
+				// inputs to any other recipe.
+				if strings.HasPrefix(product.Name, spaceElevatorPartPrefix) {
+					continue
+				}
 				// Check that the product is in at least one recipe
 				found := false
 				for _, recipe := range testState.recipes {
