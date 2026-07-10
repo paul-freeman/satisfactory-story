@@ -7,8 +7,14 @@ import (
 	"testing"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
+	"github.com/paul-freeman/satisfactory-story/resources"
 	"github.com/stretchr/testify/assert"
 )
+
+// longRunTickCount is the number of ticks used by the long-run integration
+// test below. This is a test-only parameter and does not affect production
+// behavior.
+const longRunTickCount = 100000
 
 func Test_state_Tick(t *testing.T) {
 	t.Run("all resources should be in a recipe", func(t *testing.T) {
@@ -91,6 +97,93 @@ func Test_state_Tick(t *testing.T) {
 				l.Info(f.String(), slog.Float64("profit", f.Profit()))
 			}
 		}
+	})
+	t.Run("converges on real production over a long run", func(t *testing.T) {
+		l := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+			Level:       slog.LevelError,
+			ReplaceAttr: removeTimeAndLevel,
+		}))
+		seed := int64(152)
+
+		logLevel := new(slog.Level)
+		testState, err := New(l, logLevel, seed)
+		assert.NoError(t, err, "failed to create state")
+		for i := 0; i < longRunTickCount; i++ {
+			err = testState.Tick(l)
+			assert.NoError(t, err, "failed to tick state")
+		}
+
+		// No producer should ever be sold beyond its actual output rate.
+		// (Checked directly against Sales/output rate, not via
+		// RemainingCapacityFor -- that method clamps at 0, which would make
+		// this assertion pass trivially even if oversell had occurred.)
+		for _, p := range testState.producers {
+			switch producer := p.(type) {
+			case *resources.Resource:
+				committed := 0.0
+				for _, sale := range producer.Sales {
+					if !sale.Cancelled && sale.Order.Name == producer.Production.Name {
+						committed += sale.Order.Rate
+					}
+				}
+				assert.LessOrEqual(t, committed, producer.Production.Rate,
+					"resource %s oversold", producer.PrettyPrint())
+			case *factory.Factory:
+				for _, output := range producer.Output {
+					committed := 0.0
+					for _, sale := range producer.Sales {
+						if !sale.Cancelled && sale.Order.Name == output.Name {
+							committed += sale.Order.Rate
+						}
+					}
+					assert.LessOrEqual(t, committed, output.Rate,
+						"factory %s oversold %s", producer.String(), output.Name)
+				}
+			}
+		}
+
+		// At least one factory should have found a real buyer -- i.e.
+		// genuine downstream trade is happening (real revenue, not just
+		// signed-but-unfulfilled contracts). Reaching an actual sink
+		// delivery would require a full multi-tier chain culminating in a
+		// space-elevator part, which is combinatorially rare to assemble
+		// from scratch within any practical tick budget (see the design
+		// history in docs/superpowers/plans/2026-07-10-economic-engine-v2.md)
+		// -- this asserts the achievable, still-meaningful property instead.
+		factorySaleFound := false
+		for _, p := range testState.producers {
+			f, ok := p.(*factory.Factory)
+			if !ok {
+				continue
+			}
+			for _, sale := range f.Sales {
+				if !sale.Cancelled && sale.Order.Rate > 0 {
+					factorySaleFound = true
+				}
+			}
+		}
+		assert.True(t, factorySaleFound, "expected at least one factory to have an active sale to a real buyer after a long run")
+
+		// At least one product should have more than one active,
+		// independent producer -- evidence of a niche, not a monopoly.
+		producersByProduct := make(map[string]int)
+		for _, p := range testState.producers {
+			f, ok := p.(*factory.Factory)
+			if !ok {
+				continue
+			}
+			for _, product := range f.Products() {
+				producersByProduct[product.Name]++
+			}
+		}
+		foundNiche := false
+		for _, count := range producersByProduct {
+			if count > 1 {
+				foundNiche = true
+				break
+			}
+		}
+		assert.True(t, foundNiche, "expected at least one product to have multiple coexisting producers")
 	})
 }
 

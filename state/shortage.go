@@ -1,5 +1,7 @@
 package state
 
+import "math"
+
 // shortageDecay is the fraction of a recorded shortage retained each tick.
 // At 0.99 a shortage's contribution roughly halves every ~70 ticks, so
 // stale demand signals fade but don't vanish instantly.
@@ -34,8 +36,14 @@ func (s *State) decayShortages() {
 }
 
 // weightForProduct returns the spawn-selection weight for a product: a
-// baseline so untested recipes are still occasionally tried, plus any
-// currently recorded shortage.
+// baseline so untested recipes are still occasionally tried, plus a
+// log-compressed function of any currently recorded shortage. Log
+// compression matters because a handful of products (e.g. space-elevator
+// parts, which sinks want unconditionally and forever) can accumulate a
+// shortage orders of magnitude larger than everything else -- used
+// linearly, that one huge number would consume nearly all spawn-draw
+// probability mass and starve every other recipe, including the tier-1
+// ones a supply chain has to start from.
 func (s *State) weightForProduct(name string) float64 {
-	return baselineOpportunityWeight + s.unmet[name]
+	return baselineOpportunityWeight + math.Log1p(s.unmet[name])
 }

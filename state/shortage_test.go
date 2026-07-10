@@ -1,6 +1,9 @@
 package state
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func Test_shortage_tracking(t *testing.T) {
 	s := &State{}
@@ -11,8 +14,9 @@ func Test_shortage_tracking(t *testing.T) {
 
 	s.recordShortage("Widget", 10)
 	s.recordShortage("Widget", 5)
-	if got := s.weightForProduct("Widget"); got != baselineOpportunityWeight+15 {
-		t.Errorf("got %f, want %f", got, baselineOpportunityWeight+15)
+	want := baselineOpportunityWeight + math.Log1p(15)
+	if got := s.weightForProduct("Widget"); got != want {
+		t.Errorf("got %f, want %f", got, want)
 	}
 
 	for i := 0; i < 2000; i++ {
