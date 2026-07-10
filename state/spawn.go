@@ -17,6 +17,10 @@ const seedCapitalBufferTicks = 5.0
 // and weighed against each other for each spawn attempt.
 const spawnCandidates = 5
 
+// spawnProbabilityPerTick is the chance, per tick, that a new producer is
+// attempted at all.
+const spawnProbabilityPerTick = 0.05
+
 // spawnNewProducer samples a handful of candidate recipes, weighted toward
 // products with recorded shortages (see shortage.go), and spawns the
 // chosen one only if it can be sourced and would not be forced to sell

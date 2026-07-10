@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"math"
 	"math/rand"
-	"sort"
 	"sync"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
@@ -20,9 +19,7 @@ import (
 )
 
 const (
-	borderPaddingPct        = 0.1
-	lifetime                = 6000
-	simulatedAnnealingTicks = 3000
+	borderPaddingPct = 0.1
 )
 
 type State struct {
@@ -131,14 +128,18 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 	s.tick++
 	l := parentLogger.With(slog.Int("tick", s.tick))
 
-	switch (s.tick / simulatedAnnealingTicks) % 3 {
-	case 0:
+	// Every mechanism runs every tick (spawning and renegotiation are each
+	// individually probability-gated inside their own function) instead of
+	// the old spawn/move/cull phases, which meant nothing moved or got
+	// culled for the first third of any run.
+	s.moveProducers(l)
+	s.sourceSinks(l)
+	if s.randSrc.Float64() < spawnProbabilityPerTick {
 		s.spawnNewProducer(l)
-	case 1:
-		s.moveProducer(l)
-	case 2:
-		s.removeUnprofitableProducers(l)
 	}
+	s.renegotiateContracts(l)
+	s.applySolvency(l)
+	s.decayShortages()
 
 	return nil
 }
@@ -237,100 +238,7 @@ func (s *State) setCancellationFunc(cancel context.CancelFunc, logger *slog.Logg
 	s.cancel = cancel
 }
 
-type producerStats struct {
-	producer production.Producer
-	profit   float64
-}
-
-func (s *State) removeUnprofitableProducers(l *slog.Logger) {
-	// Calculate profit for each producer
-	stats := make([]producerStats, 0, len(s.producers))
-	for _, producer := range s.producers {
-		stats = append(stats, producerStats{producer, producer.Profit()})
-	}
-
-	// Group producers by product
-	groupedStats := make(map[string][](producerStats))
-	for _, stat := range stats {
-		productsKey := stat.producer.Products().Key()
-		currentStats, ok := groupedStats[productsKey]
-		if !ok {
-			groupedStats[productsKey] = []producerStats{stat}
-		} else {
-			groupedStats[productsKey] = append(currentStats, stat)
-		}
-	}
-
-	// Sort producers groups by profit - most profitable first
-	for _, statsGroup := range groupedStats {
-		sort.Slice(statsGroup, func(i, j int) bool {
-			return statsGroup[i].profit > statsGroup[j].profit
-		})
-	}
-
-	// See what we can remove
-	finalProducers := make([]production.Producer, 0, len(s.producers))
-	for _, statsGroup := range groupedStats {
-		for i, val := range statsGroup {
-			f, ok := val.producer.(*factory.Factory)
-			if !ok {
-				finalProducers = append(finalProducers, statsGroup[i].producer)
-				continue
-			}
-
-			func() {
-				for _, contract := range f.ContractsIn() {
-					if contract.Cancelled {
-						l.Debug("removing factory with cancelled contract", slog.String("factory", f.String()))
-						f.Remove()
-						return
-					}
-				}
-				if len(f.ContractsIn()) != len(f.Input) {
-					l.Debug("removing factory with incomplete contracts", slog.String("factory", f.String()))
-					f.Remove()
-					return
-				}
-				if len(f.ContractsIn()) == 0 {
-					l.Debug("removing factory with no contracts", slog.String("factory", f.String()))
-					f.Remove()
-					return
-				}
-				if f.CreatedTick+lifetime >= s.tick {
-					finalProducers = append(finalProducers, statsGroup[i].producer)
-					return
-				}
-				if i < 0 {
-					finalProducers = append(finalProducers, val.producer)
-					return
-				}
-				numSales := 0
-				for _, sale := range f.Sales {
-					if !sale.Cancelled {
-						numSales++
-					}
-				}
-				if numSales != 0 {
-					finalProducers = append(finalProducers, val.producer)
-					return
-				}
-				if val.profit <= 0 {
-					l.Debug("removing unprofitable factory", slog.String("factory", f.String()))
-					f.Remove()
-					return
-				}
-
-				// Keep producer
-				finalProducers = append(finalProducers, val.producer)
-			}()
-		}
-	}
-
-	// Save new producers
-	s.producers = finalProducers
-}
-
-func (s *State) moveProducer(l *slog.Logger) {
+func (s *State) moveProducers(l *slog.Logger) {
 	for _, producer := range s.producers {
 		switch producer := producer.(type) {
 		case production.MoveableProducer:
