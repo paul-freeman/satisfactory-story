@@ -32,6 +32,7 @@ type State struct {
 	producers []production.Producer
 	recipes   recipes.Recipes
 	market    map[string]float64
+	unmet     map[string]float64
 	sinks     map[string]int
 
 	seed   int64
@@ -104,6 +105,7 @@ func (s *State) getInitialState(l *slog.Logger, logLevel *slog.Level, seed int64
 	s.producers = producers
 	s.recipes = recipes
 	s.market = make(map[string]float64)
+	s.unmet = make(map[string]float64)
 	s.sinks = sinks
 
 	s.seed = seed
