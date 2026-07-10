@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 
@@ -79,52 +78,6 @@ func (j recipeJSON) toRecipe() *Recipe {
 		r.OutputProducts[i].Rate /= float64(j.DurationStr)
 	}
 	return r
-}
-
-type Source struct {
-	Order         production.Production
-	Seller        production.Producer
-	TransportCost float64
-}
-
-func (r Recipe) SourceProducts(l *slog.Logger, sellers []production.Producer, destination point.Point) (map[string]Source, error) {
-	sourcedProducts := make(map[string]Source)
-	for _, order := range r.Inputs() {
-		// Find producers that produce the input product
-		var bestProducer production.Producer
-		var bestCost float64
-		for _, seller := range sellers {
-			err := seller.HasCapacityFor(order)
-			if err != nil {
-				continue
-			}
-			origin := seller.Location()
-			cost := TransportCost(origin, destination)
-			if bestProducer == nil {
-				bestProducer = seller
-				bestCost = TransportCost(seller.Location(), destination)
-			} else if cost < bestCost {
-				bestProducer = seller
-				bestCost = cost
-			}
-		}
-		if bestProducer == nil {
-			l.Debug("failed to find producer for input", slog.String("input", order.Name))
-			return nil, fmt.Errorf("failed to find producer for input %s", order.Name)
-		}
-		sourcedProducts[order.Name] = Source{
-			Order:         order,
-			Seller:        bestProducer,
-			TransportCost: bestCost,
-		}
-	}
-
-	// Check that all products are available
-	if len(sourcedProducts) != len(r.Inputs()) {
-		return nil, fmt.Errorf("failed to find all inputs for %s", r.String())
-	}
-
-	return sourcedProducts, nil
 }
 
 func (r Recipe) Name() string {

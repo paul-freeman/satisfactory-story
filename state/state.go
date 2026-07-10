@@ -352,7 +352,7 @@ func (s *State) spawnNewProducers(l *slog.Logger) {
 	recipe := activeRecipes[s.randSrc.Intn(len(activeRecipes))]
 
 	// Find the cheapest source of each input product
-	sources, err := recipe.SourceProducts(l, s.producers, loc)
+	sources, _, err := recipe.SourceProducts(l, s.producers, loc)
 	if err != nil {
 		l.Debug("failed to source all recipe ingredients", slog.String("error", err.Error()))
 		return
