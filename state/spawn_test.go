@@ -1,9 +1,11 @@
 package state
 
 import (
+	"math"
 	"math/rand"
 	"testing"
 
+	"github.com/paul-freeman/satisfactory-story/factory"
 	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
 	"github.com/paul-freeman/satisfactory-story/recipes"
@@ -40,6 +42,31 @@ func Test_spawnNewProducer_spawns_when_viable(t *testing.T) {
 
 	if len(s.producers) != 2 {
 		t.Fatalf("expected a new factory to spawn, got %d producers", len(s.producers))
+	}
+
+	// Find the newly spawned factory (the non-ore producer).
+	var f *factory.Factory
+	for _, p := range s.producers {
+		if _, ok := p.(*resources.Resource); !ok {
+			f = p.(*factory.Factory)
+			break
+		}
+	}
+	if f == nil {
+		t.Fatalf("could not find spawned factory in producers")
+	}
+
+	// Compute expected seed capital from fixture data.
+	// seedCapitalBufferTicks is the constant from spawn.go.
+	const seedCapitalBufferTicks = 5.0
+	transportCost := recipes.TransportCost(ore.Loc, f.Loc)
+	order := production.Production{Name: "Ore", Rate: 5}
+	salesPrice := ore.SalesPriceFor(order, transportCost)
+	expectedSeedCapital := (salesPrice + transportCost) * seedCapitalBufferTicks
+
+	// Assert seed capital matches expected value (with float tolerance).
+	if math.Abs(f.Wallet.Balance-expectedSeedCapital) >= 0.0001 {
+		t.Errorf("expected seed capital %f, got %f", expectedSeedCapital, f.Wallet.Balance)
 	}
 }
 
