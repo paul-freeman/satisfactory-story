@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
-	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
 	"github.com/paul-freeman/satisfactory-story/recipes"
 	"github.com/paul-freeman/satisfactory-story/resources"
@@ -134,7 +133,7 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 
 	switch (s.tick / simulatedAnnealingTicks) % 3 {
 	case 0:
-		s.spawnNewProducers(l)
+		s.spawnNewProducer(l)
 	case 1:
 		s.moveProducer(l)
 	case 2:
@@ -329,47 +328,6 @@ func (s *State) removeUnprofitableProducers(l *slog.Logger) {
 
 	// Save new producers
 	s.producers = finalProducers
-}
-
-type producerCost struct {
-	p    production.Producer
-	cost float64
-}
-
-func (s *State) spawnNewProducers(l *slog.Logger) {
-	// Pick a location to spawn the new producer
-	loc := point.Point{
-		X: s.randSrc.Intn(s.xmax-s.xmin) + s.xmin,
-		Y: s.randSrc.Intn(s.ymax-s.ymin) + s.ymin,
-	}
-
-	activeRecipes := make([]*recipes.Recipe, 0)
-	for _, recipe := range s.recipes {
-		if recipe.Active {
-			activeRecipes = append(activeRecipes, recipe)
-		}
-	}
-
-	// Select a recipe for the new producer
-	recipe := activeRecipes[s.randSrc.Intn(len(activeRecipes))]
-
-	// Find the cheapest source of each input product
-	sources, _, err := recipe.SourceProducts(l, s.producers, loc)
-	if err != nil {
-		l.Debug("failed to source all recipe ingredients", slog.String("error", err.Error()))
-		return
-	}
-
-	// Add the new producer
-	newFactory := factory.New(recipe.Name(), loc, s.tick, recipe.Inputs(), recipe.Outputs(), 0)
-	for _, source := range sources {
-		s.writeContract(l, source.Seller, newFactory, source.Order, source.TransportCost)
-	}
-	s.producers = append(s.producers, newFactory)
-	l.Debug("spawned producer",
-		slog.String("factory", newFactory.Name),
-		slog.Float64("profit", newFactory.Profit()),
-	)
 }
 
 func (s *State) moveProducer(l *slog.Logger) {
