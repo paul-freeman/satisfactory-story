@@ -13,6 +13,7 @@ type State struct {
 	Factories  []Factory   `json:"factories"`
 	Sinks      []Sink      `json:"sinks"`
 	Transports []Transport `json:"transports"`
+	Shortages  []Shortage  `json:"shortages"`
 	Tick       int         `json:"tick"`
 	Running    bool        `json:"running"`
 	Bounds     Bounds      `json:"bounds"`
@@ -23,6 +24,11 @@ type Bounds struct {
 	Xmax int `json:"xmax"`
 	Ymin int `json:"ymin"`
 	Ymax int `json:"ymax"`
+}
+
+type Shortage struct {
+	Product string  `json:"product"`
+	Amount  float64 `json:"amount"`
 }
 
 type Resource struct {
@@ -38,6 +44,7 @@ type Factory struct {
 	Recipe        string   `json:"recipe"`
 	Products      []string `json:"products"`
 	Profitability float64  `json:"profitability"`
+	Cash          float64  `json:"cash"`
 }
 
 type Sink struct {

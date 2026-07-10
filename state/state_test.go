@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
+	"github.com/paul-freeman/satisfactory-story/point"
+	"github.com/paul-freeman/satisfactory-story/production"
 	"github.com/paul-freeman/satisfactory-story/resources"
 	"github.com/stretchr/testify/assert"
 )
@@ -195,4 +197,39 @@ func removeTimeAndLevel(_ []string, a slog.Attr) slog.Attr {
 		return slog.Attr{}
 	}
 	return a
+}
+
+func Test_toHTTP_wire_additions(t *testing.T) {
+	l := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level:       slog.LevelError,
+		ReplaceAttr: removeTimeAndLevel,
+	}))
+	logLevel := new(slog.Level)
+	s, err := New(l, logLevel, 152)
+	assert.NoError(t, err, "failed to create state")
+
+	s.recordShortage("Widget", 30)
+	s.recordShortage("Gadget", 10)
+
+	newFactory := factory.New("Test Recipe", point.Point{X: 0, Y: 0}, 0,
+		production.Products{}, production.Products{}, 500)
+	newFactory.Wallet.Apply(-123.45)
+	s.producers = append(s.producers, newFactory)
+
+	wire := s.toHTTP()
+
+	found := false
+	for _, f := range wire.Factories {
+		if f.Recipe == "Test Recipe (0)" {
+			found = true
+			assert.InDelta(t, 500-123.45, f.Cash, 0.0001, "factory cash should reflect its wallet balance")
+		}
+	}
+	assert.True(t, found, "expected the test factory to appear in the wire state")
+
+	assert.GreaterOrEqual(t, len(wire.Shortages), 2, "expected at least the two recorded shortages")
+	assert.Equal(t, "Widget", wire.Shortages[0].Product, "shortages should be sorted by amount descending")
+	widgetWeight := s.weightForProduct("Widget")
+	gadgetWeight := s.weightForProduct("Gadget")
+	assert.Greater(t, widgetWeight, gadgetWeight, "sanity check on the fixture itself")
 }

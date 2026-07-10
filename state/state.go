@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand"
+	"sort"
 	"sync"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
@@ -320,6 +321,25 @@ func (s *State) MarshalJSON() ([]byte, error) {
 	return json.Marshal(sJSON)
 }
 
+// shortageWireLimit caps how many entries toHTTP reports, so the frontend
+// panel doesn't get flooded once dozens of products have small residual
+// shortages.
+const shortageWireLimit = 20
+
+func (s *State) shortagesForWire() []statehttp.Shortage {
+	shortages := make([]statehttp.Shortage, 0, len(s.unmet))
+	for product, amount := range s.unmet {
+		shortages = append(shortages, statehttp.Shortage{Product: product, Amount: amount})
+	}
+	sort.Slice(shortages, func(i, j int) bool {
+		return shortages[i].Amount > shortages[j].Amount
+	})
+	if len(shortages) > shortageWireLimit {
+		shortages = shortages[:shortageWireLimit]
+	}
+	return shortages
+}
+
 func (s *State) toHTTP() statehttp.State {
 	resources := make([]statehttp.Resource, 0)
 	factories := make([]statehttp.Factory, 0)
@@ -395,6 +415,7 @@ func (s *State) toHTTP() statehttp.State {
 				Recipe:        producer.Name + fmt.Sprintf(" (%d)", numContracts),
 				Products:      products,
 				Profitability: profitability,
+				Cash:          producer.Cash(),
 			}
 			factories = append(factories, factory)
 
@@ -468,6 +489,7 @@ func (s *State) toHTTP() statehttp.State {
 		Factories:  factories,
 		Transports: transports,
 		Sinks:      sinks,
+		Shortages:  s.shortagesForWire(),
 		Tick:       s.tick,
 		Running:    s.cancel != nil,
 		Bounds:     bounds,
