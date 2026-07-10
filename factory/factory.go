@@ -71,13 +71,16 @@ func (f *Factory) Location() point.Point {
 
 // SalesPriceFor is the price of a sale.
 //
-// For a factory, this is the sum of the purchase prices plus the transport
-// cost. All of this is marked up by 50%
+// For a factory, this is the sum of everything it paid for its inputs
+// (product cost *and* inbound transport) plus the transport cost of this
+// sale, marked up 50%. Omitting inbound transport here would mean a
+// factory could never recoup what it actually spent getting its
+// ingredients, regardless of markup.
 func (f *Factory) SalesPriceFor(order production.Production, transportCost float64) float64 {
 	purchaseCosts := 0.0
 	for _, purchase := range f.Purchases {
 		if !purchase.Cancelled {
-			purchaseCosts += purchase.ProductCost
+			purchaseCosts += purchase.ProductCost + purchase.TransportCost
 		}
 	}
 	return (purchaseCosts + transportCost) * 1.50 // 50% profit
@@ -127,25 +130,26 @@ func (f *Factory) Products() production.Products {
 	return f.Output
 }
 
-// Profit implements producer.
+// Profit implements producer. Revenue from a sale is its ProductCost minus
+// the TransportCost the factory pays to ship it; the cost of a purchase is
+// its ProductCost plus the TransportCost paid to receive it. This mirrors
+// resources.Resource.Profit's accounting.
 func (f *Factory) Profit() float64 {
 	profit := 0.0
 
-	// Review sales
 	newSales := make([]*production.Contract, 0)
 	for _, sale := range f.Sales {
 		if !sale.Cancelled {
-			profit += sale.TransportCost
+			profit += sale.ProductCost - sale.TransportCost
 			newSales = append(newSales, sale)
 		}
 	}
 	f.Sales = newSales
 
-	// Review purchases
 	newPurchases := make([]*production.Contract, 0)
 	for _, purchase := range f.Purchases {
 		if !purchase.Cancelled {
-			profit -= purchase.TransportCost
+			profit -= purchase.ProductCost + purchase.TransportCost
 			newPurchases = append(newPurchases, purchase)
 		}
 	}
