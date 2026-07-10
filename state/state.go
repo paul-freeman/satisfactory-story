@@ -352,7 +352,7 @@ func (s *State) toHTTP() statehttp.State {
 
 			// Append factory with list of products
 			profitability := producer.Profitability()
-			if math.IsNaN(profitability) {
+			if math.IsNaN(profitability) || math.IsInf(profitability, 0) {
 				profitability = 0
 			}
 
@@ -380,7 +380,7 @@ func (s *State) toHTTP() statehttp.State {
 
 			// Append factory with list of products
 			profitability := producer.Profitability()
-			if math.IsNaN(profitability) {
+			if math.IsNaN(profitability) || math.IsInf(profitability, 0) {
 				profitability = 0
 			}
 

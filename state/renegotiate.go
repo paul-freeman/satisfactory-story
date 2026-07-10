@@ -48,11 +48,17 @@ func (s *State) renegotiateContracts(l *slog.Logger) {
 				continue
 			}
 
-			purchase.Cancel()
+			// Sign the replacement before cancelling the incumbent: if
+			// writeContract fails (e.g. another factory's renegotiation
+			// earlier in this same pass already consumed the candidate's
+			// capacity), the factory must keep its existing supplier rather
+			// than being left short an input contract, which would make
+			// applySolvency wrongly cull it later this same tick.
 			if err := s.writeContract(l, candidate.Seller, f, candidate.Order, candidate.TransportCost); err != nil {
 				l.Debug("failed to renegotiate contract", slog.String("error", err.Error()))
 				continue
 			}
+			purchase.Cancel()
 			l.Debug("renegotiated contract",
 				slog.String("factory", f.String()),
 				slog.String("product", purchase.Order.Name))
