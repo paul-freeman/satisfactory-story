@@ -23,12 +23,13 @@ import (
 // report), raising this value from 200 steadily increases both a factory's
 // median survival time and the number of factories alive concurrently at
 // any given tick: ~2 concurrent at the old 200-tick grace, 7-30 concurrent
-// at 10,000, 58-76 concurrent at 50,000. 8,000 was chosen as the smallest
-// value in that range that still reliably keeps factories alive long
-// enough to be discovered by a future spawn attempt and trade with each
-// other (verified via the long-run test in state_test.go) -- it favors a
-// more observable, "lived-in" cadence of bankruptcy-driven turnover in the
-// live simulation over chasing the highest survival numbers. It does NOT
+// at 10,000, 58-76 concurrent at 50,000. 8,000 was tried and failed to
+// reliably pass the long-run test; 10,000 is the smallest value confirmed
+// to reliably keep factories alive long enough to be discovered by a
+// future spawn attempt and trade with each other (verified via the
+// long-run test in state_test.go) -- it favors a more observable,
+// "lived-in" cadence of bankruptcy-driven turnover in the live simulation
+// over chasing the highest survival numbers. It does NOT
 // get a producer all the way to a SpaceElevatorPart_* product at any value
 // tried -- that requires a 4-5 tier recipe chain with several rare
 // intermediate producers alive at once, and their rarity is governed by
