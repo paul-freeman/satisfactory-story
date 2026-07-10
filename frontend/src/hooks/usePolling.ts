@@ -9,8 +9,14 @@ export function usePolling() {
   const [state, setState] = useState<State | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<number | null>(null);
+  // Tracks whether this component has unmounted. If a fetch resolves after unmount,
+  // we check this flag to avoid updating state or scheduling timers on a dead component.
+  const cancelledRef = useRef(false);
 
   const applyState = useCallback((newState: State) => {
+    if (cancelledRef.current) {
+      return;
+    }
     setState(newState);
     setError(null);
     if (timerRef.current !== null) {
@@ -19,6 +25,9 @@ export function usePolling() {
     }
     if (newState.running) {
       timerRef.current = window.setTimeout(() => {
+        if (cancelledRef.current) {
+          return;
+        }
         getState().then(applyState).catch(handleError);
       }, POLL_INTERVAL_MS);
     }
@@ -26,12 +35,17 @@ export function usePolling() {
   }, []);
 
   const handleError = useCallback((err: unknown) => {
+    if (cancelledRef.current) {
+      return;
+    }
     setError(err instanceof Error ? err.message : String(err));
   }, []);
 
   useEffect(() => {
+    cancelledRef.current = false;
     getState().then(applyState).catch(handleError);
     return () => {
+      cancelledRef.current = true;
       if (timerRef.current !== null) {
         window.clearTimeout(timerRef.current);
       }
