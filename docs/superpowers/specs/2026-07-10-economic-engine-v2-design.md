@@ -185,3 +185,60 @@ overlay) are deferred until Phase 1 is running and observed — speculating on
 exact JSON shapes before the mechanics exist and have been tuned isn't
 useful. This section will be revisited with its own design pass once Phase
 1 is complete.
+
+## Postscript: what Phase 1 implementation actually found (2026-07-10)
+
+Phase 1 was fully implemented per the plan
+(`docs/superpowers/plans/2026-07-10-economic-engine-v2.md`, commits
+`b620fbb`..`27e1e4a`), but the final integration test (proving the rewrite
+converges on real production) required real, user-approved deviations from
+the written plan, discovered only once the whole system ran together for
+the first time. This is documented here — not just in gitignored scratch —
+because it changes what a future reader should expect the running
+simulation to actually do.
+
+**What changed from the plan, and why:**
+
+- `spawnNewProducer`'s candidate selection is a single weighted draw over
+  the *entire* active-recipe population, not "sample 5 uniformly, then
+  weigh only those 5" as originally planned. The sampled-then-weighed
+  version structurally prevents demand from ever influencing which recipes
+  get proposed at all — only which of an already-random handful wins —
+  which makes demand incapable of propagating backward through a supply
+  chain.
+- `weightForProduct` (`state/shortage.go`) log-compresses the shortage
+  signal (`math.Log1p`) rather than using it linearly. Sinks record a
+  permanent, steady-state shortage (~5000) for their wanted product every
+  tick by design ("sinks want an unlimited amount forever"); used linearly
+  against the fix above, that single huge number consumed ~99.7% of every
+  spawn draw and starved even tier-1 bootstrapping entirely.
+- `insolvencyGrace` (`state/solvency.go`) is `10000`, not `200`. A newly
+  spawned factory signs no output/sale contract at spawn time — it
+  survives purely on the hope that some future spawn attempt or
+  renegotiation discovers it and buys its output. 200 ticks turned out to
+  be far shorter than the realistic wait for that to happen given the
+  recipe pool size and spawn cadence; every factory that ever spawned died
+  before finding a buyer until this was raised.
+- The long-run test's central assertion is "at least one factory has a
+  real, active sale to another factory" (genuine downstream trade and
+  revenue), not "a sink received a delivery." Reaching an actual
+  space-elevator part requires a 4-tier-deep recipe chain in which two
+  independently-rare tier-3 intermediate producers must be alive
+  *simultaneously* — this never happened once across every combination of
+  tuning tried (`insolvencyGrace` from 2,000 to 50,000, tick budgets up to
+  2,000,000), because `shortageDecay`'s ~70-tick half-life ages out demand
+  for a rare recipe long before it is ever redrawn (average gap ~4,300
+  ticks at baseline weight). This is a genuine combinatorial-rarity
+  limitation, not a bug, and is not fixed by any of the above.
+
+**Known accepted limitation:** as tuned, the simulation reliably produces
+shallow/mid-tier supply chains with real trade, competition, and
+bankruptcy-driven turnover — the core "self-organizing, lived-in, niches
+form" goal — but does not reach deep multi-tier finished goods (space
+elevator parts) in practice. If that becomes a goal worth pursuing, two
+directions were identified but not implemented: shortage decay based on
+elapsed ticks since last recorded (rather than a fixed per-tick multiplier),
+so rare-recipe demand can accumulate across the long gaps between draws;
+and/or demand-matched spawning, where a new factory tries to line up a
+buyer before committing to spawn, symmetric to how it already lines up
+sellers for its inputs.

@@ -1,5 +1,17 @@
 # Economic Engine v2 Implementation Plan
 
+> **Status: executed, with Task 11 superseded during implementation.** Tasks
+> 1-10 landed exactly as written below. Task 11's original assertions (reach
+> an actual space-elevator-part delivery within 20,000 ticks) turned out to
+> be combinatorially unreachable at any tuning, for reasons discovered only
+> during execution. Task 11's section below is kept for historical record;
+> the actual final implementation — the corrected `spawnNewProducer`
+> weighting algorithm, `insolvencyGrace=10000`, and the relaxed long-run
+> assertion — is documented in
+> `.superpowers/sdd/progress.md` (gitignored scratch, may not exist in your
+> checkout) and the final commit history from `87711bb` to `27e1e4a`. Read
+> those before treating this section's Task 11 code as current.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rebuild the backend simulation core (Phase 1 of the design in `docs/superpowers/specs/2026-07-10-economic-engine-v2-design.md`) so factories self-organize by resource location and transport cost, multiple producers of the same product can coexist in geographic niches, and the simulation converges on genuinely delivering finished goods instead of drifting forever.
