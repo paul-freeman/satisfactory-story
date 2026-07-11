@@ -59,7 +59,7 @@ The FactoryGame JSON encodes products as parenthesized strings, so `production.P
 
 ### HTTP boundary (`state/http/`)
 
-`http.go` defines the `Server` interface the core satisfies, the wire types (`State`, `Resource`, `Factory`, `Sink`, `Transport`, `Recipe`), and the handlers. Endpoints: `/state`, `/tick`, `/run`, `/stop`, `/reset`, `/recipes`, `/recipe/{name}/{0|1}`. `/` serves static files from the working directory (the `*_*.png` map tiles at the repo root).
+`http.go` defines the `Server` interface the core satisfies, the wire types (`State`, `Resource`, `Factory`, `Sink`, `Transport`, `Recipe`), and the handlers. Endpoints: `/state`, `/tick`, `/run`, `/stop`, `/reset`, `/recipes`, `/recipe/{name}/{0|1}`. `/` serves the built frontend from `frontend/dist` (`http.FileServer(http.Dir("frontend/dist"))`).
 
 `State.MarshalJSON` → `toHTTP` is the translation layer from the rich internal model to these flat wire types; it also prunes cancelled sales and derives per-contract `Transport` links. The wire types are intentionally lossy (e.g. only the first input/output is sent for a recipe).
 
@@ -70,4 +70,4 @@ The FactoryGame JSON encodes products as parenthesized strings, so `production.P
 ## Notes
 
 - The default seed is hardcoded in `cmd/story/main.go` (`seed := 152`); the simulation is deterministic given the seed.
-- Map tiles (`0_0.png` … `4_4.png`) at the repo root are checked-in assets; `frontend/dist` (production build output) and `frontend/node_modules` are gitignored.
+- Map tiles (`0_0.png` … `4_4.png`) are checked-in assets under `frontend/public/`, copied into `frontend/dist` by Vite's build; `frontend/dist` and `frontend/node_modules` are gitignored.
