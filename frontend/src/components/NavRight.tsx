@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { Recipe, State } from '../types';
+import ShortagePanel from './ShortagePanel';
 
 interface NavRightProps {
   state: State;
@@ -36,6 +37,7 @@ export default function NavRight({ state, recipes, onSetRecipe }: NavRightProps)
       <div style={itemStyle}>Sinks: {state.sinks.length}</div>
       <div style={itemStyle}>Transports: {state.transports.length}</div>
       <div style={itemStyle}>Inactive: {inactiveResources}</div>
+      <ShortagePanel shortages={state.shortages} />
       {[...alternates, ...normal].map((recipe) => (
         <label key={recipe.name} style={{ ...itemStyle, display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
           <input
