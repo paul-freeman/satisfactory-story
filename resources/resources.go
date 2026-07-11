@@ -33,6 +33,10 @@ type Resource struct {
 	Purity     purity
 	Loc        point.Point
 	Sales      []*production.Contract
+	// AskPrice is the persistent per-unit sale price for this node's
+	// product, adjusted by the market loop. Zero means "not yet quoted";
+	// it defaults on first use.
+	AskPrice float64
 }
 
 func New() ([]*Resource, error) {
@@ -189,6 +193,27 @@ func (r *Resource) HasCapacityFor(order production.Production) error {
 // ContractsIn implements production.Producer.
 func (r *Resource) ContractsIn() []*production.Contract {
 	return []*production.Contract{}
+}
+
+// AskPriceFor returns the standing per-unit sale price for the named
+// product (0 for a product this node does not produce), defaulting on
+// first quote.
+func (r *Resource) AskPriceFor(name string) float64 {
+	if name != r.Production.Name {
+		return 0
+	}
+	if r.AskPrice == 0 {
+		r.AskPrice = production.DefaultUnitPrice
+	}
+	return r.AskPrice
+}
+
+// SetAskPrice records a new standing per-unit sale price.
+func (r *Resource) SetAskPrice(name string, price float64) {
+	if name != r.Production.Name {
+		return
+	}
+	r.AskPrice = price
 }
 
 var _ production.Producer = (*Resource)(nil)

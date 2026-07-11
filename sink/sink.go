@@ -10,22 +10,28 @@ import (
 )
 
 type Sink struct {
-	Name      string
-	Loc       point.Point
-	Input     production.Products
-	Purchases []*production.Contract
+	Name         string
+	Loc          point.Point
+	Input        production.Products
+	Purchases    []*production.Contract
+	// BidUnitPrice is the standing per-unit price this sink offers for
+	// every product it wants. Goal sinks bid high -- their demand is the
+	// engine of the whole economy.
+	BidUnitPrice float64
 }
 
 func New(
 	name string,
 	loc point.Point,
 	input production.Products,
+	bidUnitPrice float64,
 ) *Sink {
 	return &Sink{
-		Name:      name,
-		Loc:       loc,
-		Input:     input,
-		Purchases: make([]*production.Contract, 0),
+		Name:         name,
+		Loc:          loc,
+		Input:        input,
+		Purchases:    make([]*production.Contract, 0),
+		BidUnitPrice: bidUnitPrice,
 	}
 }
 

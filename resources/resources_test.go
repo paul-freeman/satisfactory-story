@@ -82,3 +82,18 @@ func Test_resource_HasCapacityFor(t *testing.T) {
 		})
 	}
 }
+
+func Test_Resource_ask_price_defaults_and_sets(t *testing.T) {
+	r := &Resource{Production: production.Production{Name: "Ore", Rate: 100}}
+
+	if got := r.AskPriceFor("Ore"); got != production.DefaultUnitPrice {
+		t.Errorf("unquoted ask should default to %f, got %f", production.DefaultUnitPrice, got)
+	}
+	r.SetAskPrice("Ore", 0.5)
+	if got := r.AskPriceFor("Ore"); got != 0.5 {
+		t.Errorf("got %f, want 0.5", got)
+	}
+	if got := r.AskPriceFor("NotMyProduct"); got != 0 {
+		t.Errorf("asking about a foreign product should return 0, got %f", got)
+	}
+}

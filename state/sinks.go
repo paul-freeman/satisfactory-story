@@ -15,6 +15,19 @@ import (
 // one at a time.
 const spaceElevatorPartPrefix = "SpaceElevatorPart_"
 
+// goalBidUnitPrice is what a space-elevator sink offers per unit of its
+// part. It is deliberately far above any plausible production cost so
+// the recipe that makes the part is always the most profitable thing in
+// the book -- this bid is the money that cascades backward through the
+// supply tiers.
+const goalBidUnitPrice = 1000.0
+
+// sinkDemandRate is the standing bid rate for sinks. Effectively
+// unlimited against realistic production rates (single recipes run at
+// ~0.1-10 units/sec) while staying readable in the UI and safe in
+// min() arithmetic.
+const sinkDemandRate = 100.0
+
 // sinkPerpetualShortage is added to a sink's wanted product's shortage
 // score every tick, before decay -- sinks want an unlimited amount of
 // their product forever, so the demand signal must never fully vanish.
@@ -36,7 +49,7 @@ func newSinks(rs recipes.Recipes, xmin, xmax, ymin, ymax int) []*sink.Sink {
 			seen[output.Name] = true
 			sinks = append(sinks, sink.New(output.Name, center, production.Products{
 				production.New(output.Name, 1, 1),
-			}))
+			}, goalBidUnitPrice))
 		}
 	}
 	return sinks

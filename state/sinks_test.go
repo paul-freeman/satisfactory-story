@@ -28,6 +28,11 @@ func Test_newSinks_finds_distinct_space_elevator_parts(t *testing.T) {
 	if !names["SpaceElevatorPart_1"] || !names["SpaceElevatorPart_2"] {
 		t.Errorf("expected both space elevator parts represented, got %+v", names)
 	}
+	for _, sk := range sinks {
+		if sk.BidUnitPrice != goalBidUnitPrice {
+			t.Errorf("goal sink %s should bid %f, got %f", sk.Name, goalBidUnitPrice, sk.BidUnitPrice)
+		}
+	}
 }
 
 func Test_sourceSinks_buys_all_available_capacity(t *testing.T) {
