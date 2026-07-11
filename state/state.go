@@ -30,7 +30,6 @@ type State struct {
 	producers []production.Producer
 	recipes   recipes.Recipes
 	market    map[string]float64
-	unmet     map[string]float64
 	// book is the per-tick order book: rebuilt from live producer state
 	// by publishOrders, crossed by matchOrders. Persisted on State so
 	// later phases of the same tick (spawning, renegotiation, price
@@ -112,7 +111,6 @@ func (s *State) getInitialState(l *slog.Logger, logLevel *slog.Level, seed int64
 	s.producers = producers
 	s.recipes = recipes
 	s.market = make(map[string]float64)
-	s.unmet = make(map[string]float64)
 	s.book = market.NewBook()
 	s.lastTrade = make(map[string]float64)
 
@@ -151,7 +149,6 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 	}
 	s.renegotiateContracts(l)
 	s.applySolvency(l)
-	s.decayShortages()
 
 	return nil
 }
@@ -338,9 +335,20 @@ func (s *State) MarshalJSON() ([]byte, error) {
 // shortages.
 const shortageWireLimit = 20
 
+// shortagesForWire reports unmet demand as it actually exists in the
+// economy: the post-matching residual bid volume per product.
 func (s *State) shortagesForWire() []statehttp.Shortage {
-	shortages := make([]statehttp.Shortage, 0, len(s.unmet))
-	for product, amount := range s.unmet {
+	totals := make(map[string]float64)
+	for _, product := range s.book.Products() {
+		for _, bid := range s.book.Bids(product) {
+			if bid.Remaining <= production.RateEpsilon {
+				continue
+			}
+			totals[product] += bid.Remaining
+		}
+	}
+	shortages := make([]statehttp.Shortage, 0, len(totals))
+	for product, amount := range totals {
 		shortages = append(shortages, statehttp.Shortage{Product: product, Amount: amount})
 	}
 	sort.Slice(shortages, func(i, j int) bool {

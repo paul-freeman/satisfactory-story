@@ -18,7 +18,6 @@ func newTestState(rs recipes.Recipes, producers []production.Producer) *State {
 		recipes:   rs,
 		producers: producers,
 		market:    make(map[string]float64),
-		unmet:     make(map[string]float64),
 		book:      market.NewBook(),
 		lastTrade: make(map[string]float64),
 		randSrc:   rand.New(rand.NewSource(1)),
@@ -26,75 +25,108 @@ func newTestState(rs recipes.Recipes, producers []production.Producer) *State {
 	}
 }
 
-func Test_spawnNewProducer_spawns_when_viable(t *testing.T) {
-	ore := &resources.Resource{
-		Production: production.Production{Name: "Ore", Rate: 100},
-		Loc:        point.Point{X: 500, Y: 500},
-	}
+func Test_spawnNewProducer_spawns_idle_without_sourcing(t *testing.T) {
+	// No Ore seller exists at all -- under the old economy this spawn
+	// was impossible. Under the order book the factory spawns idle and
+	// its bids will summon a supplier.
 	rs := recipes.Recipes{
 		{
+			ClassName:      "Recipe_Smelt_C",
 			DisplayName:    "Smelt Ore",
 			Active:         true,
 			InputProducts:  production.Products{{Name: "Ore", Rate: 5}},
 			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
 		},
 	}
-	s := newTestState(rs, []production.Producer{ore})
-
-	s.spawnNewProducer(testLogger())
-
-	if len(s.producers) != 2 {
-		t.Fatalf("expected a new factory to spawn, got %d producers", len(s.producers))
-	}
-
-	// Find the newly spawned factory (the non-ore producer).
-	var f *factory.Factory
-	for _, p := range s.producers {
-		if _, ok := p.(*resources.Resource); !ok {
-			f = p.(*factory.Factory)
-			break
-		}
-	}
-	if f == nil {
-		t.Fatalf("could not find spawned factory in producers")
-	}
-
-	// Compute expected seed capital from fixture data.
-	// seedCapitalBufferTicks is the constant from spawn.go.
-	const seedCapitalBufferTicks = 5.0
-	transportCost := recipes.TransportCost(ore.Loc, f.Loc)
-	order := production.Production{Name: "Ore", Rate: 5}
-	salesPrice := ore.SalesPriceFor(order, transportCost)
-	expectedSeedCapital := (salesPrice + transportCost) * seedCapitalBufferTicks
-
-	// Assert seed capital matches expected value (with float tolerance).
-	if math.Abs(f.Wallet.Balance-expectedSeedCapital) >= 0.0001 {
-		t.Errorf("expected seed capital %f, got %f", expectedSeedCapital, f.Wallet.Balance)
-	}
-}
-
-func Test_spawnNewProducer_skips_when_uneconomical(t *testing.T) {
-	ore := &resources.Resource{
-		Production: production.Production{Name: "Ore", Rate: 100},
-		Loc:        point.Point{X: 500, Y: 500},
-	}
-	rs := recipes.Recipes{
-		{
-			DisplayName:    "Smelt Ore",
-			Active:         true,
-			InputProducts:  production.Products{{Name: "Ore", Rate: 5}},
-			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
-		},
-	}
-	s := newTestState(rs, []production.Producer{ore})
-	// Someone is already selling Ingot far below what this recipe could
-	// ever recoup from its input costs -- spawning here would guarantee a
-	// loss, so it should be skipped.
-	s.market["Ingot"] = 0.0001
+	s := newTestState(rs, []production.Producer{})
 
 	s.spawnNewProducer(testLogger())
 
 	if len(s.producers) != 1 {
-		t.Fatalf("expected no new factory to spawn, got %d producers", len(s.producers))
+		t.Fatalf("expected an idle factory to spawn, got %d producers", len(s.producers))
+	}
+	f := s.producers[0].(*factory.Factory)
+	if f.Producing() {
+		t.Error("the factory should be idle -- there is nothing to source")
+	}
+	// Seed capital: no ask, no trade history -> pessimistic estimate.
+	// (unknownInputUnitCost*5 + upkeepPerTick) * seedCapitalBufferTicks
+	want := (unknownInputUnitCost*5 + upkeepPerTick) * seedCapitalBufferTicks
+	if math.Abs(f.Wallet.Cash()-want) > 0.0001 {
+		t.Errorf("expected seed capital %f, got %f", want, f.Wallet.Cash())
+	}
+}
+
+func Test_spawnNewProducer_initializes_bids_at_best_ask(t *testing.T) {
+	ore := &resources.Resource{
+		Production: production.Production{Name: "Ore", Rate: 100},
+		Loc:        point.Point{X: 500, Y: 500},
+	}
+	ore.SetAskPrice("Ore", 0.4)
+	rs := recipes.Recipes{
+		{
+			ClassName:      "Recipe_Smelt_C",
+			DisplayName:    "Smelt Ore",
+			Active:         true,
+			InputProducts:  production.Products{{Name: "Ore", Rate: 5}},
+			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
+		},
+	}
+	s := newTestState(rs, []production.Producer{ore})
+	s.publishOrders(testLogger())
+
+	s.spawnNewProducer(testLogger())
+
+	var f *factory.Factory
+	for _, p := range s.producers {
+		if candidate, ok := p.(*factory.Factory); ok {
+			f = candidate
+		}
+	}
+	if f == nil {
+		t.Fatal("expected a factory to spawn")
+	}
+	if got := f.BidPriceFor("Ore"); got != 0.4 {
+		t.Errorf("bid should start at the best ask 0.4, got %f", got)
+	}
+	// Seed capital now uses the real ask price.
+	want := (0.4*5 + upkeepPerTick) * seedCapitalBufferTicks
+	if math.Abs(f.Wallet.Cash()-want) > 0.0001 {
+		t.Errorf("expected seed capital %f, got %f", want, f.Wallet.Cash())
+	}
+}
+
+func Test_expectedProfit_reads_the_book(t *testing.T) {
+	buyer := factory.New("Downstream", "Recipe_Down_C", point.Point{X: 0, Y: 0}, 0,
+		production.Products{{Name: "Ingot", Rate: 5}},
+		production.Products{{Name: "Plate", Rate: 5}}, 0)
+	recipe := &recipes.Recipe{
+		ClassName:      "Recipe_Smelt_C",
+		DisplayName:    "Smelt Ore",
+		Active:         true,
+		InputProducts:  production.Products{{Name: "Ore", Rate: 5}},
+		OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
+	}
+	s := newTestState(recipes.Recipes{recipe}, []production.Producer{})
+
+	// No bids at all: revenue falls back to the floor price.
+	wantFloor := floorUnitPrice*5 - (unknownInputUnitCost*5 + upkeepPerTick)
+	if got := s.expectedProfit(recipe); math.Abs(got-wantFloor) > 0.0001 {
+		t.Errorf("expected floor-based profit %f, got %f", wantFloor, got)
+	}
+
+	// A real standing bid for the output raises expected profit.
+	s.book.PostBid(buyer, "Ingot", 5, 8.0)
+	want := 8.0*5 - (unknownInputUnitCost*5 + upkeepPerTick)
+	if got := s.expectedProfit(recipe); math.Abs(got-want) > 0.0001 {
+		t.Errorf("expected bid-based profit %f, got %f", want, got)
+	}
+
+	// A cheap ask for the input raises it further.
+	seller := &resources.Resource{Production: production.Production{Name: "Ore", Rate: 100}}
+	s.book.PostAsk(seller, "Ore", 100, 0.5)
+	want = 8.0*5 - (0.5*5 + upkeepPerTick)
+	if got := s.expectedProfit(recipe); math.Abs(got-want) > 0.0001 {
+		t.Errorf("expected ask-based profit %f, got %f", want, got)
 	}
 }

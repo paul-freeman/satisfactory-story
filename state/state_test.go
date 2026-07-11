@@ -209,8 +209,10 @@ func Test_toHTTP_wire_additions(t *testing.T) {
 	s, err := New(l, logLevel, 152)
 	assert.NoError(t, err, "failed to create state")
 
-	s.recordShortage("Widget", 30)
-	s.recordShortage("Gadget", 10)
+	hungry := factory.New("Hungry", "Recipe_Hungry_C", point.Point{X: 0, Y: 0}, 0,
+		production.Products{}, production.Products{}, 0)
+	s.book.PostBid(hungry, "Widget", 30, 5.0)
+	s.book.PostBid(hungry, "Gadget", 10, 2.0)
 
 	newFactory := factory.New("Test Recipe", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0,
 		production.Products{}, production.Products{}, 500)
@@ -230,7 +232,4 @@ func Test_toHTTP_wire_additions(t *testing.T) {
 
 	assert.GreaterOrEqual(t, len(wire.Shortages), 2, "expected at least the two recorded shortages")
 	assert.Equal(t, "Widget", wire.Shortages[0].Product, "shortages should be sorted by amount descending")
-	widgetWeight := s.weightForProduct("Widget")
-	gadgetWeight := s.weightForProduct("Gadget")
-	assert.Greater(t, widgetWeight, gadgetWeight, "sanity check on the fixture itself")
 }
