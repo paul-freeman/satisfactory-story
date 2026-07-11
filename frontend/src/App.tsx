@@ -15,6 +15,7 @@ function App() {
         resources={state.resources}
         sinks={state.sinks}
         transports={state.transports}
+        factories={state.factories}
       />
     </div>
   );

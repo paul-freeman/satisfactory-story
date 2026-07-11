@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { select } from 'd3-selection';
 import { zoom, zoomIdentity, type D3ZoomEvent } from 'd3-zoom';
-import type { Bounds, Resource, Sink, Transport } from '../types';
+import type { Bounds, Factory, Resource, Sink, Transport } from '../types';
 import { toSvgY } from '../coords';
+import { cashColorScale } from '../colorScale';
 
 // World-space tile layout, matching the original CustomSvg.elm constants
 // exactly: a 5x5 grid of 32000-unit tiles with its corner at (0, -160300).
@@ -16,9 +17,10 @@ interface MapViewProps {
   resources: Resource[];
   sinks: Sink[];
   transports: Transport[];
+  factories: Factory[];
 }
 
-export default function MapView({ bounds, resources, sinks, transports }: MapViewProps) {
+export default function MapView({ bounds, resources, sinks, transports, factories }: MapViewProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const zoomGroupRef = useRef<SVGGElement | null>(null);
 
@@ -66,6 +68,8 @@ export default function MapView({ bounds, resources, sinks, transports }: MapVie
     }
   }
 
+  const factoryColor = cashColorScale(factories.map((f) => f.cash));
+
   return (
     <svg ref={svgRef} width="100%" height="100%" style={{ display: 'block', background: '#222' }}>
       <g ref={zoomGroupRef}>
@@ -112,7 +116,7 @@ export default function MapView({ bounds, resources, sinks, transports }: MapVie
         <g>
           {sinks.map((s, i) => (
             <text
-              key={i}
+              key={`sink-${i}`}
               x={s.location.x}
               y={toSvgY(bounds, s.location.y) + 1300}
               textAnchor="middle"
@@ -122,10 +126,18 @@ export default function MapView({ bounds, resources, sinks, transports }: MapVie
               {s.label}
             </text>
           ))}
+          {factories.map((f, i) => (
+            <text key={`factory-${i}`} x={f.location.x} y={toSvgY(bounds, f.location.y) + 1300} textAnchor="middle" dominantBaseline="middle" fontSize={800}>
+              {f.recipe}
+            </text>
+          ))}
         </g>
         <g>
           {sinks.map((s, i) => (
-            <circle key={i} cx={s.location.x} cy={toSvgY(bounds, s.location.y)} r={180} fill="orange" />
+            <circle key={`sink-${i}`} cx={s.location.x} cy={toSvgY(bounds, s.location.y)} r={180} fill="orange" />
+          ))}
+          {factories.map((f, i) => (
+            <circle key={`factory-${i}`} cx={f.location.x} cy={toSvgY(bounds, f.location.y)} r={180} fill={factoryColor(f.cash)} />
           ))}
         </g>
       </g>
