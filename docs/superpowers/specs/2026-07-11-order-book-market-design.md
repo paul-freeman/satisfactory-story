@@ -175,6 +175,29 @@ in the UI. Everything else renders as before.
   parts of `spawn_test.go` / `solvency_test.go`) are rewritten against the new
   mechanisms or dropped with their subjects.
 
+## Planning amendments (2026-07-12)
+
+Two refinements discovered while writing the implementation plan
+(`docs/superpowers/plans/2026-07-12-order-book-market.md`):
+
+1. **Idle factories still pay for signed contracts.** The design says an idle
+   factory "pays no input costs", but contracts are binding flows: a
+   partially-sourced factory pays its signed purchases (holding inventory
+   costs money and motivates escalating the remaining bids). Only a factory
+   with no purchases pays upkeep alone. The intent — idle factories bleed
+   slowly and legibly — is preserved.
+2. **The floor buyer is salvage revenue, not a book bid.** The flat transport
+   floor (`recipes.TransportCost` ≥ 1.0 per contract) makes a low floor-price
+   bid unreachable for typical recipe rates (per-unit transport alone exceeds
+   it), and where it could cross, its persistent contracts would lock up
+   capacity that real buyers want next tick. Instead, `applySolvency` credits
+   every producing factory `floorUnitPrice` per unit of unsold output
+   capacity — contract-free and transport-free (thematically: every factory
+   has an on-site AWESOME sink hookup). Same economic role — speculative
+   producers earn something, real trade always beats the floor — and the
+   guaranteed floor also anchors expected-profit and affordability estimates.
+   There is no floor sink entity.
+
 ## Known tuning surface
 
 Bid-escalation rate vs. ask-decay rate is a genuine stability surface: set
