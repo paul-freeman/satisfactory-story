@@ -30,18 +30,23 @@ export default function MapView({ bounds, resources, sinks, transports, factorie
     }
     const svgSelection = select(svgRef.current);
     const zoomGroupSelection = select(zoomGroupRef.current);
+    // Fit the whole world into the viewport on first mount, with some padding.
+    const { width: viewportWidth, height: viewportHeight } = svgRef.current.getBoundingClientRect();
+    const worldWidth = bounds.xmax - bounds.xmin;
+    const worldHeight = bounds.ymax - bounds.ymin;
+    const initialScale = 0.85 * Math.min(viewportWidth / worldWidth, viewportHeight / worldHeight);
+    // The lower bound must sit below initialScale, or the first zoom-out
+    // gesture would clamp back up to it instead of zooming out further.
     const zoomBehavior = zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.05, 20])
+      .scaleExtent([initialScale * 0.2, 20])
       .on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
         zoomGroupSelection.attr('transform', event.transform.toString());
       });
     svgSelection.call(zoomBehavior);
-    // Center roughly on the world bounds on first mount.
-    const initialScale = 0.3;
     svgSelection.call(
       zoomBehavior.transform,
       zoomIdentity
-        .translate(400, 300)
+        .translate(viewportWidth / 2, viewportHeight / 2)
         .scale(initialScale)
         .translate(-(bounds.xmin + bounds.xmax) / 2, -(bounds.ymin + bounds.ymax) / 2),
     );
