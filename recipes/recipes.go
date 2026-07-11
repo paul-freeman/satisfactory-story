@@ -45,6 +45,7 @@ func New() (Recipes, error) {
 type Recipes []*Recipe
 
 type Recipe struct {
+	ClassName      string
 	DisplayName    string
 	ProducedIn     Producer
 	InputProducts  production.Products
@@ -53,6 +54,7 @@ type Recipe struct {
 }
 
 type recipeJSON struct {
+	ClassName      string              `json:"ClassName"`
 	DisplayName    string              `json:"mDisplayName"`
 	ProducedIn     Producer            `json:"mProducedIn"`
 	InputProducts  production.Products `json:"mIngredients"`
@@ -63,6 +65,7 @@ type recipeJSON struct {
 
 func (j recipeJSON) toRecipe() *Recipe {
 	r := &Recipe{
+		ClassName:      j.ClassName,
 		DisplayName:    j.DisplayName,
 		ProducedIn:     j.ProducedIn,
 		InputProducts:  j.InputProducts,
@@ -82,6 +85,10 @@ func (j recipeJSON) toRecipe() *Recipe {
 
 func (r Recipe) Name() string {
 	return r.DisplayName
+}
+
+func (r Recipe) ID() string {
+	return r.ClassName
 }
 
 func (r Recipe) String() string {

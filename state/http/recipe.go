@@ -1,6 +1,7 @@
 package http
 
 type Recipe struct {
+	ID      string    `json:"id"`
 	Name    string    `json:"name"`
 	Inputs  []Product `json:"inputs"`
 	Outputs []Product `json:"outputs"`

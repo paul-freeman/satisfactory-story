@@ -211,7 +211,7 @@ func Test_toHTTP_wire_additions(t *testing.T) {
 	s.recordShortage("Widget", 30)
 	s.recordShortage("Gadget", 10)
 
-	newFactory := factory.New("Test Recipe", point.Point{X: 0, Y: 0}, 0,
+	newFactory := factory.New("Test Recipe", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0,
 		production.Products{}, production.Products{}, 500)
 	newFactory.Wallet.Apply(-123.45)
 	s.producers = append(s.producers, newFactory)

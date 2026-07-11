@@ -8,7 +8,7 @@ import (
 )
 
 func Test_Factory_Cash(t *testing.T) {
-	f := New("Test Factory", point.Point{X: 0, Y: 0}, 0, production.Products{}, production.Products{}, 250)
+	f := New("Test Factory", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0, production.Products{}, production.Products{}, 250)
 	if f.Cash() != 250 {
 		t.Errorf("got %f, want 250", f.Cash())
 	}
@@ -16,7 +16,7 @@ func Test_Factory_Cash(t *testing.T) {
 
 func Test_Factory_RemainingCapacityFor(t *testing.T) {
 	output := production.Products{{Name: "Widget", Rate: 10}}
-	f := New("Test Factory", point.Point{X: 0, Y: 0}, 0, production.Products{}, output, 0)
+	f := New("Test Factory", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0, production.Products{}, output, 0)
 
 	if got := f.RemainingCapacityFor("Widget"); got != 10 {
 		t.Errorf("got %f, want 10", got)
@@ -41,7 +41,7 @@ func Test_Factory_RemainingCapacityFor(t *testing.T) {
 }
 
 func Test_Factory_SalesPriceFor(t *testing.T) {
-	f := New("Test Factory", point.Point{X: 0, Y: 0}, 0, production.Products{}, production.Products{}, 0)
+	f := New("Test Factory", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0, production.Products{}, production.Products{}, 0)
 	f.Purchases = append(f.Purchases, &production.Contract{
 		ProductCost:   10,
 		TransportCost: 2,
@@ -55,7 +55,7 @@ func Test_Factory_SalesPriceFor(t *testing.T) {
 }
 
 func Test_Factory_Profit(t *testing.T) {
-	f := New("Test Factory", point.Point{X: 0, Y: 0}, 0, production.Products{}, production.Products{}, 0)
+	f := New("Test Factory", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0, production.Products{}, production.Products{}, 0)
 	f.Sales = append(f.Sales, &production.Contract{
 		ProductCost:   30,
 		TransportCost: 5,
@@ -73,7 +73,7 @@ func Test_Factory_Profit(t *testing.T) {
 }
 
 func Test_Factory_Profit_ignores_cancelled_contracts(t *testing.T) {
-	f := New("Test Factory", point.Point{X: 0, Y: 0}, 0, production.Products{}, production.Products{}, 0)
+	f := New("Test Factory", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0, production.Products{}, production.Products{}, 0)
 	f.Sales = append(f.Sales, &production.Contract{
 		ProductCost:   30,
 		TransportCost: 5,

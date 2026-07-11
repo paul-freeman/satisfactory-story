@@ -39,11 +39,11 @@ export default function NavRight({ state, recipes, onSetRecipe }: NavRightProps)
       <div style={itemStyle}>Inactive: {inactiveResources}</div>
       <ShortagePanel shortages={state.shortages} />
       {[...alternates, ...normal].map((recipe) => (
-        <label key={recipe.name} style={{ ...itemStyle, display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
+        <label key={recipe.id} style={{ ...itemStyle, display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}>
           <input
             type="checkbox"
             checked={recipe.active}
-            onChange={(e) => onSetRecipe(recipe.name, e.target.checked)}
+            onChange={(e) => onSetRecipe(recipe.id, e.target.checked)}
           />
           {recipe.name}
         </label>

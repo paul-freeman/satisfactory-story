@@ -35,6 +35,6 @@ export function getRecipes(): Promise<Recipe[]> {
   return getJSON<Recipe[]>('/recipes');
 }
 
-export function setRecipe(name: string, active: boolean): Promise<Recipe[]> {
-  return getJSON<Recipe[]>(`/recipe/${encodeURIComponent(name)}/${active ? '1' : '0'}`);
+export function setRecipe(id: string, active: boolean): Promise<Recipe[]> {
+  return getJSON<Recipe[]>(`/recipe/${encodeURIComponent(id)}/${active ? '1' : '0'}`);
 }

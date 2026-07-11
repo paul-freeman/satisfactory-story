@@ -12,7 +12,7 @@ import (
 )
 
 func Test_renegotiateContracts_switches_to_a_much_cheaper_supplier(t *testing.T) {
-	buyer := factory.New("Buyer", point.Point{X: 1000, Y: 1000}, 0,
+	buyer := factory.New("Buyer", "Recipe_Test_C", point.Point{X: 1000, Y: 1000}, 0,
 		production.Products{{Name: "Ore", Rate: 5}},
 		production.Products{{Name: "Ingot", Rate: 5}}, 1000)
 

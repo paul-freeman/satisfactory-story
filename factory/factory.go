@@ -10,6 +10,7 @@ import (
 
 type Factory struct {
 	Name        string
+	RecipeClass string
 	Loc         point.Point
 	CreatedTick int
 
@@ -25,6 +26,7 @@ type Factory struct {
 
 func New(
 	name string,
+	recipeClass string,
 	loc point.Point,
 	tick int,
 	input production.Products,
@@ -33,6 +35,7 @@ func New(
 ) *Factory {
 	return &Factory{
 		Name:        name,
+		RecipeClass: recipeClass,
 		Loc:         loc,
 		CreatedTick: tick,
 		Input:       input,

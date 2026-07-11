@@ -188,6 +188,7 @@ func (s *State) Recipes(_ *slog.Logger) []statehttp.Recipe {
 	recipes := make([]statehttp.Recipe, 0, len(s.recipes))
 	for _, recipe := range s.recipes {
 		recipes = append(recipes, statehttp.Recipe{
+			ID:   recipe.ID(),
 			Name: recipe.Name(),
 			Inputs: []statehttp.Product{
 				{
@@ -208,10 +209,10 @@ func (s *State) Recipes(_ *slog.Logger) []statehttp.Recipe {
 	return recipes
 }
 
-func (s *State) SetRecipe(l *slog.Logger, recipeName string, enabled bool) []statehttp.Recipe {
+func (s *State) SetRecipe(l *slog.Logger, recipeID string, enabled bool) []statehttp.Recipe {
 	// Find recipe
 	for _, r := range s.recipes {
-		if r.DisplayName == recipeName {
+		if r.ID() == recipeID {
 			r.Active = enabled
 		}
 	}
@@ -220,7 +221,7 @@ func (s *State) SetRecipe(l *slog.Logger, recipeName string, enabled bool) []sta
 		// Remove all producers using this recipe
 		for _, p := range s.producers {
 			f, ok := p.(*factory.Factory)
-			if ok && f.Name == recipeName {
+			if ok && f.RecipeClass == recipeID {
 				f.Remove()
 			}
 		}

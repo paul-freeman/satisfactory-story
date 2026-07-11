@@ -59,6 +59,7 @@ export interface Product {
 }
 
 export interface Recipe {
+  id: string;
   name: string;
   inputs: Product[];
   outputs: Product[];
