@@ -82,7 +82,7 @@ func Serve(s Server, port string, l *slog.Logger, logLevel *slog.Level) {
 	http.HandleFunc("/reset", handleReset(s, l, logLevel))
 	http.HandleFunc("/recipes", handleRecipes(s, l))
 	http.HandleFunc("/recipe/", handleRecipe(s, l))
-	http.Handle("/", http.FileServer(http.Dir(".")))
+	http.Handle("/", http.FileServer(http.Dir("frontend/dist")))
 	fmt.Printf("Server running on %s\n", port)
 	if err := http.ListenAndServe(port, nil); err != nil {
 		panic(fmt.Sprintf("failed to start HTTP server: %v", err))
