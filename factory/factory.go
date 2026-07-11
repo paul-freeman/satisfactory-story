@@ -21,6 +21,13 @@ type Factory struct {
 	Purchases []*production.Contract
 	Sales     []*production.Contract
 
+	// AskPrices holds this factory's standing per-unit sale price for
+	// each output; BidPrices the per-unit price it currently offers for
+	// each input. Both are adjusted by the market loop (state/prices.go)
+	// -- they are the only market state that persists between ticks.
+	AskPrices map[string]float64
+	BidPrices map[string]float64
+
 	production.Wallet
 }
 
@@ -42,6 +49,8 @@ func New(
 		Output:      output,
 		Purchases:   make([]*production.Contract, 0),
 		Sales:       make([]*production.Contract, 0),
+		AskPrices:   make(map[string]float64),
+		BidPrices:   make(map[string]float64),
 		Wallet:      production.NewWallet(seedCapital),
 	}
 }
@@ -255,4 +264,103 @@ func (f *Factory) moveTo(loc point.Point) {
 		purchase.TransportCost = recipes.TransportCost(purchase.Seller.Location(), loc)
 	}
 	return
+}
+
+// AskPriceFor returns the standing per-unit sale price for the named
+// product, defaulting on first quote.
+func (f *Factory) AskPriceFor(name string) float64 {
+	if f.AskPrices == nil {
+		f.AskPrices = make(map[string]float64)
+	}
+	price, ok := f.AskPrices[name]
+	if !ok {
+		price = production.DefaultUnitPrice
+		f.AskPrices[name] = price
+	}
+	return price
+}
+
+// SetAskPrice records a new standing per-unit sale price.
+func (f *Factory) SetAskPrice(name string, price float64) {
+	if f.AskPrices == nil {
+		f.AskPrices = make(map[string]float64)
+	}
+	f.AskPrices[name] = price
+}
+
+// BidPriceFor returns the standing per-unit purchase offer for the named
+// input, defaulting on first quote.
+func (f *Factory) BidPriceFor(name string) float64 {
+	if f.BidPrices == nil {
+		f.BidPrices = make(map[string]float64)
+	}
+	price, ok := f.BidPrices[name]
+	if !ok {
+		price = production.DefaultUnitPrice
+		f.BidPrices[name] = price
+	}
+	return price
+}
+
+// SetBidPrice records a new standing per-unit purchase offer.
+func (f *Factory) SetBidPrice(name string, price float64) {
+	if f.BidPrices == nil {
+		f.BidPrices = make(map[string]float64)
+	}
+	f.BidPrices[name] = price
+}
+
+// UnmetInputRate returns how much of the named input's required rate is
+// not yet covered by active purchase contracts.
+func (f *Factory) UnmetInputRate(name string) float64 {
+	required := 0.0
+	for _, input := range f.Input {
+		if input.Name == name {
+			required = input.Rate
+			break
+		}
+	}
+	for _, purchase := range f.Purchases {
+		if !purchase.Cancelled && purchase.Order.Name == name {
+			required -= purchase.Order.Rate
+		}
+	}
+	if required < 0 {
+		return 0
+	}
+	return required
+}
+
+// Producing reports whether every input is fully covered by active
+// purchase contracts. A factory that is not producing publishes no asks
+// and sells nothing -- it is idle, waiting for its input bids to fill.
+func (f *Factory) Producing() bool {
+	for _, input := range f.Input {
+		if f.UnmetInputRate(input.Name) > production.RateEpsilon {
+			return false
+		}
+	}
+	return true
+}
+
+// MarginalUnitCost is the factory's current per-unit cost basis: what it
+// pays per tick (active purchases including transport, plus upkeep)
+// spread over its total output rate. Used as the floor when the market
+// loop lowers this factory's ask prices -- it never knowingly sells
+// below cost.
+func (f *Factory) MarginalUnitCost(upkeep float64) float64 {
+	cost := upkeep
+	for _, purchase := range f.Purchases {
+		if !purchase.Cancelled {
+			cost += purchase.ProductCost + purchase.TransportCost
+		}
+	}
+	totalRate := 0.0
+	for _, output := range f.Output {
+		totalRate += output.Rate
+	}
+	if totalRate <= production.RateEpsilon {
+		return cost
+	}
+	return cost / totalRate
 }
