@@ -10,7 +10,12 @@ function App() {
 
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
-      <MapView bounds={state.bounds} />
+      <MapView
+        bounds={state.bounds}
+        resources={state.resources}
+        sinks={state.sinks}
+        transports={state.transports}
+      />
     </div>
   );
 }
