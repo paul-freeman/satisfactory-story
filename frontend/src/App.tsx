@@ -1,10 +1,18 @@
+import { useEffect, useState } from 'react';
 import { usePolling } from './hooks/usePolling';
 import MapView from './components/MapView';
 import NavLeft from './components/NavLeft';
+import NavRight from './components/NavRight';
 import * as api from './api';
+import type { Recipe } from './types';
 
 function App() {
   const { state, applyState } = usePolling();
+  const [recipes, setRecipes] = useState<Recipe[]>([]);
+
+  useEffect(() => {
+    api.getRecipes().then(setRecipes);
+  }, []);
 
   if (!state) {
     return <div>Loading...</div>;
@@ -29,6 +37,11 @@ function App() {
           factories={state.factories}
         />
       </div>
+      <NavRight
+        state={state}
+        recipes={recipes}
+        onSetRecipe={(name, active) => api.setRecipe(name, active).then(setRecipes)}
+      />
     </div>
   );
 }
