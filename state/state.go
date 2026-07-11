@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
+	"github.com/paul-freeman/satisfactory-story/market"
 	"github.com/paul-freeman/satisfactory-story/production"
 	"github.com/paul-freeman/satisfactory-story/recipes"
 	"github.com/paul-freeman/satisfactory-story/resources"
@@ -30,6 +31,14 @@ type State struct {
 	recipes   recipes.Recipes
 	market    map[string]float64
 	unmet     map[string]float64
+	// book is the per-tick order book: rebuilt from live producer state
+	// by publishOrders, crossed by matchOrders. Persisted on State so
+	// later phases of the same tick (spawning, renegotiation, price
+	// adjustment, the wire format) can read post-matching residuals.
+	book *market.Book
+	// lastTrade remembers the most recent traded unit price per product,
+	// used to estimate input costs for products with no current ask.
+	lastTrade map[string]float64
 
 	seed   int64
 	tick   int
@@ -104,6 +113,8 @@ func (s *State) getInitialState(l *slog.Logger, logLevel *slog.Level, seed int64
 	s.recipes = recipes
 	s.market = make(map[string]float64)
 	s.unmet = make(map[string]float64)
+	s.book = market.NewBook()
+	s.lastTrade = make(map[string]float64)
 
 	s.seed = seed
 	s.tick = 0
@@ -129,12 +140,12 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 	s.tick++
 	l := parentLogger.With(slog.Int("tick", s.tick))
 
-	// Every mechanism runs every tick (spawning and renegotiation are each
-	// individually probability-gated inside their own function) instead of
-	// the old spawn/move/cull phases, which meant nothing moved or got
-	// culled for the first third of any run.
+	// Discovery first: rebuild the book from live state and cross it, so
+	// every later mechanism this tick (moving, spawning, renegotiation,
+	// solvency, price adjustment) sees post-matching reality.
+	s.publishOrders(l)
+	s.matchOrders(l)
 	s.moveProducers(l)
-	s.sourceSinks(l)
 	if s.randSrc.Float64() < spawnProbabilityPerTick {
 		s.spawnNewProducer(l)
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
+	"github.com/paul-freeman/satisfactory-story/market"
 	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
 	"github.com/paul-freeman/satisfactory-story/recipes"
@@ -18,6 +19,8 @@ func newTestState(rs recipes.Recipes, producers []production.Producer) *State {
 		producers: producers,
 		market:    make(map[string]float64),
 		unmet:     make(map[string]float64),
+		book:      market.NewBook(),
+		lastTrade: make(map[string]float64),
 		randSrc:   rand.New(rand.NewSource(1)),
 		xmin:      0, xmax: 1000, ymin: 0, ymax: 1000,
 	}
