@@ -134,8 +134,8 @@ func Test_state_Tick(t *testing.T) {
 		// affect simulation behavior): if the milestone isn't reached,
 		// they let the skip message report how far the economy actually
 		// got instead of failing silently. See the tuning investigation
-		// recorded in docs/superpowers/plans/2026-07-12-order-book-market.md's
-		// progress ledger for the full diagnosis.
+		// in commit 86fec24's message, and the "Order-Book Market" section
+		// of .superpowers/sdd/progress.md, for the full diagnosis.
 		everProduced := make(map[string]bool)
 		maxProducing := 0
 
@@ -167,7 +167,7 @@ func Test_state_Tick(t *testing.T) {
 			// bidRaisePct 0.02->0.05, seedCapitalBufferTicks+insolvencyGrace
 			// 300->1000, goalBidUnitPrice 1000->10000) was tried one
 			// constant at a time against this exact test and none moved
-			// the outcome -- see the progress ledger for the full
+			// the outcome -- see commit 86fec24's message for the full
 			// diagnosis. Recording observed status instead of failing
 			// silently or guessing further, per plan.
 			t.Skipf("milestone not yet reached: delivered=false after %d ticks; "+
