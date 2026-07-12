@@ -147,6 +147,7 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 	}
 	s.renegotiateContracts(l)
 	s.applySolvency(l)
+	s.adjustPrices(l)
 
 	return nil
 }
