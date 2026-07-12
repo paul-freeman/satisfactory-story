@@ -40,6 +40,7 @@ export interface Transport {
 export interface Shortage {
   product: string;
   amount: number;
+  price: number;
 }
 
 export interface State {

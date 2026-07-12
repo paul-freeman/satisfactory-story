@@ -232,4 +232,5 @@ func Test_toHTTP_wire_additions(t *testing.T) {
 
 	assert.GreaterOrEqual(t, len(wire.Shortages), 2, "expected at least the two recorded shortages")
 	assert.Equal(t, "Widget", wire.Shortages[0].Product, "shortages should be sorted by amount descending")
+	assert.Equal(t, 5.0, wire.Shortages[0].Price, "shortage should carry the best bid price")
 }

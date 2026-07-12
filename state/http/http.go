@@ -29,6 +29,7 @@ type Bounds struct {
 type Shortage struct {
 	Product string  `json:"product"`
 	Amount  float64 `json:"amount"`
+	Price   float64 `json:"price"`
 }
 
 type Resource struct {

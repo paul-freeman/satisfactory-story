@@ -287,17 +287,25 @@ const shortageWireLimit = 20
 // economy: the post-matching residual bid volume per product.
 func (s *State) shortagesForWire() []statehttp.Shortage {
 	totals := make(map[string]float64)
+	prices := make(map[string]float64)
 	for _, product := range s.book.Products() {
 		for _, bid := range s.book.Bids(product) {
 			if bid.Remaining <= production.RateEpsilon {
 				continue
 			}
 			totals[product] += bid.Remaining
+			if bid.UnitPrice > prices[product] {
+				prices[product] = bid.UnitPrice
+			}
 		}
 	}
 	shortages := make([]statehttp.Shortage, 0, len(totals))
 	for product, amount := range totals {
-		shortages = append(shortages, statehttp.Shortage{Product: product, Amount: amount})
+		shortages = append(shortages, statehttp.Shortage{
+			Product: product,
+			Amount:  amount,
+			Price:   prices[product],
+		})
 	}
 	sort.Slice(shortages, func(i, j int) bool {
 		return shortages[i].Amount > shortages[j].Amount

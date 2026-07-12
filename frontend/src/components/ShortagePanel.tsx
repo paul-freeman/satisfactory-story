@@ -23,9 +23,11 @@ export default function ShortagePanel({ shortages }: ShortagePanelProps) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
           {shortages.length === 0 && <div style={{ ...itemStyle, fontSize: 11 }}>None recorded</div>}
           {shortages.map((s) => (
-            <div key={s.product} style={{ ...itemStyle, fontSize: 11, display: 'flex', justifyContent: 'space-between' }}>
+            <div key={s.product} style={{ ...itemStyle, fontSize: 11, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
               <span>{s.product}</span>
-              <span>{s.amount.toFixed(1)}</span>
+              <span>
+                {s.amount.toFixed(1)} @ {s.price.toFixed(2)}
+              </span>
             </div>
           ))}
         </div>
