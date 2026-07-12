@@ -194,6 +194,15 @@ func (f *Factory) ContractsIn() []*production.Contract {
 }
 
 func (f *Factory) Move() error {
+	if len(f.Purchases) == 0 && len(f.Sales) == 0 {
+		// No contracts means no transport-cost gradient to climb --
+		// transportCostsAt is 0 in every direction, so the tie-break
+		// below would otherwise always pick the same neighbor and the
+		// factory would march off the map forever while it waits for
+		// its first bid to fill.
+		return nil
+	}
+
 	up := f.Loc.Up(1)
 	down := f.Loc.Down(1)
 	left := f.Loc.Left(1)

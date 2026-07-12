@@ -157,3 +157,53 @@ func Test_Factory_MarginalUnitCost(t *testing.T) {
 		t.Errorf("got %f, want 3.125", got)
 	}
 }
+
+func Test_Factory_Move_contractless_factory_holds_still(t *testing.T) {
+	start := point.Point{X: 500, Y: 500}
+	f := New("Test", "Recipe_Test_C", start, 0,
+		production.Products{{Name: "Ore", Rate: 5}},
+		production.Products{{Name: "Ingot", Rate: 5}}, 0)
+
+	// A factory with no purchases and no sales has no transport-cost
+	// gradient to climb -- it must hold still, not drift in a fixed
+	// direction every tick (the bug this test guards against: with no
+	// contracts, transportCostsAt is 0 in every direction, so a naive
+	// "move toward the lowest-cost neighbor" tie-break always picks the
+	// same direction and the factory marches off the map forever).
+	for i := 0; i < 10; i++ {
+		if err := f.Move(); err != nil {
+			t.Fatalf("Move returned an error: %v", err)
+		}
+	}
+	if f.Loc != start {
+		t.Errorf("expected a contractless factory to stay at %v, moved to %v", start, f.Loc)
+	}
+}
+
+func Test_Factory_Move_climbs_toward_lower_transport_cost(t *testing.T) {
+	start := point.Point{X: 500, Y: 500}
+	f := New("Test", "Recipe_Test_C", start, 0,
+		production.Products{{Name: "Ore", Rate: 5}},
+		production.Products{{Name: "Ingot", Rate: 5}}, 0)
+
+	// A real contract still gives Move() a gradient to climb -- this
+	// guards against the fix for the contractless case accidentally
+	// disabling movement altogether.
+	seller := New("Seller", "Recipe_Seller_C", point.Point{X: 600, Y: 500}, 0,
+		production.Products{}, production.Products{{Name: "Ore", Rate: 5}}, 0)
+	purchase := &production.Contract{
+		Seller: seller,
+		Order:  production.Production{Name: "Ore", Rate: 5},
+	}
+	f.Purchases = append(f.Purchases, purchase)
+
+	if err := f.Move(); err != nil {
+		t.Fatalf("Move returned an error: %v", err)
+	}
+	if f.Loc == start {
+		t.Error("expected the factory to move toward its seller, but it held still")
+	}
+	if f.Loc.X <= start.X {
+		t.Errorf("expected the factory to move toward its seller at X=600, got %v", f.Loc)
+	}
+}
