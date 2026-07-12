@@ -299,15 +299,22 @@ func (s *State) shortagesForWire() []statehttp.Shortage {
 			}
 		}
 	}
+	// Build from s.book.Products() (already sorted), not by ranging the
+	// totals map directly, so the pre-sort order is deterministic and a
+	// stable sort below can't leave amount-ties in map-iteration order.
 	shortages := make([]statehttp.Shortage, 0, len(totals))
-	for product, amount := range totals {
+	for _, product := range s.book.Products() {
+		amount, ok := totals[product]
+		if !ok {
+			continue
+		}
 		shortages = append(shortages, statehttp.Shortage{
 			Product: product,
 			Amount:  amount,
 			Price:   prices[product],
 		})
 	}
-	sort.Slice(shortages, func(i, j int) bool {
+	sort.SliceStable(shortages, func(i, j int) bool {
 		return shortages[i].Amount > shortages[j].Amount
 	})
 	if len(shortages) > shortageWireLimit {
