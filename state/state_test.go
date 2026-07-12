@@ -211,7 +211,12 @@ func Test_toHTTP_wire_additions(t *testing.T) {
 
 	hungry := factory.New("Hungry", "Recipe_Hungry_C", point.Point{X: 0, Y: 0}, 0,
 		production.Products{}, production.Products{}, 0)
+	alsoHungry := factory.New("Also Hungry", "Recipe_Hungry_C", point.Point{X: 1, Y: 1}, 0,
+		production.Products{}, production.Products{}, 0)
 	s.book.PostBid(hungry, "Widget", 30, 5.0)
+	// A second, lower-priced Widget bid: the reported price must be the
+	// best (highest) bid, not the last one posted or an average.
+	s.book.PostBid(alsoHungry, "Widget", 1, 3.0)
 	s.book.PostBid(hungry, "Gadget", 10, 2.0)
 
 	newFactory := factory.New("Test Recipe", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0,
