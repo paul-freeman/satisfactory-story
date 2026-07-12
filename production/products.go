@@ -31,8 +31,6 @@ type Producer interface {
 	// HasCapacityFor returns true if the producer produces the given product at
 	// the given rate.
 	HasCapacityFor(Production) error
-	// SalesPriceFor returns the price of the given product and transport cost.
-	SalesPriceFor(Production, float64) float64
 	// SignAsSeller acknowledges that the producer will sell a product.
 	SignAsSeller(*Contract) error
 	// SignAsBuyer acknowledges that the producer will purchase a product.

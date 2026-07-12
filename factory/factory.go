@@ -81,23 +81,6 @@ func (f *Factory) Location() point.Point {
 	return f.Loc
 }
 
-// SalesPriceFor is the price of a sale.
-//
-// For a factory, this is the sum of everything it paid for its inputs
-// (product cost *and* inbound transport) plus the transport cost of this
-// sale, marked up 50%. Omitting inbound transport here would mean a
-// factory could never recoup what it actually spent getting its
-// ingredients, regardless of markup.
-func (f *Factory) SalesPriceFor(order production.Production, transportCost float64) float64 {
-	purchaseCosts := 0.0
-	for _, purchase := range f.Purchases {
-		if !purchase.Cancelled {
-			purchaseCosts += purchase.ProductCost + purchase.TransportCost
-		}
-	}
-	return (purchaseCosts + transportCost) * 1.50 // 50% profit
-}
-
 // RemainingCapacityFor returns how much of the given product this factory
 // could still sell, after subtracting rate already committed to active
 // sales. Returns 0 if the factory doesn't produce that product.

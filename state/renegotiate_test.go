@@ -1,7 +1,6 @@
 package state
 
 import (
-	"math/rand"
 	"testing"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
@@ -25,25 +24,27 @@ func Test_renegotiateContracts_switches_to_a_much_cheaper_supplier(t *testing.T)
 		Loc:        point.Point{X: 1001, Y: 1001}, // right next to the buyer -- cheap transport
 	}
 
+	order := production.Production{Name: "Ore", Rate: 5}
+	oldTransport := recipes.TransportCost(farSeller.Location(), buyer.Location())
 	oldContract := &production.Contract{
 		Seller: farSeller, Buyer: buyer,
-		Order:         production.Production{Name: "Ore", Rate: 5},
-		TransportCost: recipes.TransportCost(farSeller.Location(), buyer.Location()),
+		Order:         order,
+		TransportCost: oldTransport,
+		// Signed back when Ore traded at twice today's price -- the
+		// close seller's current default ask beats this by far more
+		// than the 5% renegotiation margin.
+		ProductCost: 2 * production.DefaultUnitPrice * order.Rate,
 	}
-	oldContract.ProductCost = farSeller.SalesPriceFor(oldContract.Order, oldContract.TransportCost)
 	buyer.Purchases = append(buyer.Purchases, oldContract)
 	farSeller.Sales = append(farSeller.Sales, oldContract)
 
-	s := &State{
-		producers: []production.Producer{buyer, farSeller, closeSeller},
-		market:    make(map[string]float64),
-		randSrc:   rand.New(rand.NewSource(1)),
-	}
+	s := newTestState(recipes.Recipes{},
+		[]production.Producer{buyer, farSeller, closeSeller})
 
-	// renegotiateProbabilityPerTick only fires ~2% of the time per factory
-	// per tick, so loop enough times that the fixed-seed RNG is virtually
-	// certain to have triggered it at least once (chance of never firing
-	// in 2000 tries is ~1 in 10^17).
+	// Publish once so the book carries the close seller's ask, then loop
+	// renegotiation. The 2%-per-tick gate means the fixed-seed RNG needs
+	// a few hundred tries (chance of never firing in 2000 is ~1e-17).
+	s.publishOrders(testLogger())
 	for i := 0; i < 2000 && !oldContract.Cancelled; i++ {
 		s.renegotiateContracts(testLogger())
 	}

@@ -54,13 +54,6 @@ func (f *Sink) Location() point.Point {
 	return f.Loc
 }
 
-// SalesPriceFor is the price of a sale.
-//
-// Sinks do not sell anything, so this is always infinity.
-func (f *Sink) SalesPriceFor(order production.Production, transportCost float64) float64 {
-	return math.MaxFloat64
-}
-
 // RemainingCapacityFor implements production.Producer. Sinks never sell
 // anything, so they always report zero remaining capacity.
 func (f *Sink) RemainingCapacityFor(_ string) float64 {

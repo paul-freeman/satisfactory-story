@@ -29,7 +29,6 @@ type State struct {
 
 	producers []production.Producer
 	recipes   recipes.Recipes
-	market    map[string]float64
 	// book is the per-tick order book: rebuilt from live producer state
 	// by publishOrders, crossed by matchOrders. Persisted on State so
 	// later phases of the same tick (spawning, renegotiation, price
@@ -110,7 +109,6 @@ func (s *State) getInitialState(l *slog.Logger, logLevel *slog.Level, seed int64
 	// Populate state
 	s.producers = producers
 	s.recipes = recipes
-	s.market = make(map[string]float64)
 	s.book = market.NewBook()
 	s.lastTrade = make(map[string]float64)
 
@@ -259,57 +257,6 @@ func (s *State) moveProducers(l *slog.Logger) {
 			// Do nothing
 		}
 	}
-}
-
-func (s *State) writeContract(
-	l *slog.Logger,
-	seller production.Producer,
-	buyer production.Producer,
-	order production.Production,
-	transportCost float64,
-) error {
-	if err := seller.HasCapacityFor(order); err != nil {
-		return fmt.Errorf("cannot sign contract: %w", err)
-	}
-
-	// Calculate costs of existing contracts
-	salesPrice := seller.SalesPriceFor(order, transportCost)
-
-	// Check market price
-	marketPrice, ok := s.market[order.Name]
-	if !ok || salesPrice < marketPrice {
-		s.market[order.Name] = salesPrice
-	} else {
-		salesPrice = marketPrice
-	}
-
-	// Create contract
-	contract := &production.Contract{
-		Seller:        seller,
-		Buyer:         buyer,
-		Order:         order,
-		TransportCost: transportCost,
-		ProductCost:   salesPrice,
-	}
-
-	// Sign contract
-	if err := seller.SignAsSeller(contract); err != nil {
-		contract.Cancel()
-		return fmt.Errorf("seller rejected contract: %w", err)
-	}
-	if err := buyer.SignAsBuyer(contract); err != nil {
-		contract.Cancel()
-		return fmt.Errorf("buyer rejected contract: %w", err)
-	}
-
-	// Log contract
-	l.Debug("signed contract",
-		slog.String("order", order.Key()),
-		slog.Float64("transportCost", transportCost),
-		slog.Float64("productCost", salesPrice),
-	)
-
-	return nil
 }
 
 func (s *State) ListFactories(l *slog.Logger) {

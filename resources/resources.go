@@ -151,14 +151,6 @@ func (r *Resource) SignAsSeller(contract *production.Contract) error {
 	return nil
 }
 
-// SalesPriceFor computes the price of a sale.
-//
-// For resources, this is the transport cost plus 50%. This is very simple due
-// to the fact that resources do not rely on purchasing other products.
-func (r *Resource) SalesPriceFor(order production.Production, transportCost float64) float64 {
-	return transportCost * 1.50 // 50% profit
-}
-
 // RemainingCapacityFor returns how much of the given product this resource
 // could still sell, after subtracting rate already committed to active
 // sales. Returns 0 if the resource doesn't produce that product.

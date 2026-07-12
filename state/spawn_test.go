@@ -17,7 +17,6 @@ func newTestState(rs recipes.Recipes, producers []production.Producer) *State {
 	return &State{
 		recipes:   rs,
 		producers: producers,
-		market:    make(map[string]float64),
 		book:      market.NewBook(),
 		lastTrade: make(map[string]float64),
 		randSrc:   rand.New(rand.NewSource(1)),

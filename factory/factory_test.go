@@ -40,20 +40,6 @@ func Test_Factory_RemainingCapacityFor(t *testing.T) {
 	}
 }
 
-func Test_Factory_SalesPriceFor(t *testing.T) {
-	f := New("Test Factory", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0, production.Products{}, production.Products{}, 0)
-	f.Purchases = append(f.Purchases, &production.Contract{
-		ProductCost:   10,
-		TransportCost: 2,
-	})
-	// (10 + 2 input cost + 3 outbound transport) * 1.5 = 22.5
-	got := f.SalesPriceFor(production.Production{Name: "Widget", Rate: 1}, 3)
-	want := 22.5
-	if got != want {
-		t.Errorf("got %f, want %f", got, want)
-	}
-}
-
 func Test_Factory_Profit(t *testing.T) {
 	f := New("Test Factory", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0, production.Products{}, production.Products{}, 0)
 	f.Sales = append(f.Sales, &production.Contract{
