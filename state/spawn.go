@@ -74,7 +74,7 @@ func (s *State) spawnNewProducer(l *slog.Logger) {
 	}
 	seedCapital := (inputCost + upkeepPerTick) * seedCapitalBufferTicks
 
-	newFactory := factory.New(chosenRecipe.Name(), chosenRecipe.ID(), s.randomLocation(), s.tick,
+	newFactory := factory.New(chosenRecipe.Name(), chosenRecipe.ID(), s.spawnLocation(chosenRecipe), s.tick,
 		chosenRecipe.Inputs(), chosenRecipe.Outputs(), seedCapital)
 	// Start bidding at the going rate where one exists; the price loop
 	// escalates from there if the bids go unfilled.
@@ -118,6 +118,47 @@ func (s *State) estimatedUnitCost(product string) float64 {
 		return price
 	}
 	return unknownInputUnitCost
+}
+
+// spawnOffsetFromInput keeps a freshly-spawned factory from landing
+// exactly on a seller's coordinates. recipes.TransportCost treats any
+// distance <= 1 as a same-location collision and charges 1e12 for it
+// (see recipes.go) -- specifically to stop Move() from doing this --
+// so spawning right on top of a seller would make that input
+// permanently unaffordable instead of cheap. The offset only needs to
+// clear that threshold, not model any real construction footprint.
+const spawnOffsetFromInput = 5
+
+// spawnLocation places a new factory near its currently sourceable
+// inputs: the centroid of the best-ask sellers' locations for every
+// input that has one right now, nudged away from exact collision (see
+// spawnOffsetFromInput). This shrinks the transport-cost gap a fresh
+// bid has to close to cross an ask, and stops freshly-spawned
+// factories from starting nowhere near what they need. It reads only
+// the live book (already-public ask locations), never the recipe tree,
+// so it doesn't compromise the "prices only" demand-cascade design --
+// a recipe with no currently sourceable input (the common case for a
+// deep, not-yet-summoned tier) falls back to a random location, exactly
+// as before.
+func (s *State) spawnLocation(r *recipes.Recipe) point.Point {
+	sumX, sumY, n := 0, 0, 0
+	for _, input := range r.Inputs() {
+		ask, ok := s.book.BestAsk(input.Name)
+		if !ok {
+			continue
+		}
+		loc := ask.Seller.Location()
+		sumX += loc.X
+		sumY += loc.Y
+		n++
+	}
+	if n == 0 {
+		return s.randomLocation()
+	}
+	return point.Point{
+		X: sumX/n + spawnOffsetFromInput,
+		Y: sumY/n + spawnOffsetFromInput,
+	}
 }
 
 func (s *State) randomLocation() point.Point {

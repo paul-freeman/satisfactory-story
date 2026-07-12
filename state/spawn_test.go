@@ -95,6 +95,140 @@ func Test_spawnNewProducer_initializes_bids_at_best_ask(t *testing.T) {
 	}
 }
 
+func Test_spawnNewProducer_spawns_near_a_sourceable_input(t *testing.T) {
+	ore := &resources.Resource{
+		Production: production.Production{Name: "Ore", Rate: 100},
+		Loc:        point.Point{X: 700, Y: 300},
+	}
+	rs := recipes.Recipes{
+		{
+			ClassName:      "Recipe_Smelt_C",
+			DisplayName:    "Smelt Ore",
+			Active:         true,
+			InputProducts:  production.Products{{Name: "Ore", Rate: 5}},
+			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
+		},
+	}
+	s := newTestState(rs, []production.Producer{ore})
+	s.publishOrders(testLogger())
+
+	s.spawnNewProducer(testLogger())
+
+	var f *factory.Factory
+	for _, p := range s.producers {
+		if candidate, ok := p.(*factory.Factory); ok {
+			f = candidate
+		}
+	}
+	if f == nil {
+		t.Fatal("expected a factory to spawn")
+	}
+	// Near, not AT -- recipes.TransportCost treats distance <= 1 as a
+	// same-location collision and charges 1e12 to avoid it (see
+	// recipes.go), so a factory that spawns exactly on its seller's
+	// coordinates would make that seller permanently unaffordable.
+	if got := f.Loc.Distance(ore.Loc); got <= 1 {
+		t.Errorf("expected the factory to spawn near, not on, its seller %v -- got %v (distance %f, must exceed the TransportCost collision threshold)", ore.Loc, f.Loc, got)
+	}
+	if got := f.Loc.Distance(ore.Loc); got > 20 {
+		t.Errorf("expected the factory to spawn close to its only sourceable input %v, got %v (distance %f)", ore.Loc, f.Loc, got)
+	}
+}
+
+func Test_spawnNewProducer_spawns_at_centroid_of_multiple_sourceable_inputs(t *testing.T) {
+	ore := &resources.Resource{
+		Production: production.Production{Name: "Ore", Rate: 100},
+		Loc:        point.Point{X: 400, Y: 400},
+	}
+	coal := &resources.Resource{
+		Production: production.Production{Name: "Coal", Rate: 100},
+		Loc:        point.Point{X: 600, Y: 600},
+	}
+	rs := recipes.Recipes{
+		{
+			ClassName:   "Recipe_Steel_C",
+			DisplayName: "Steel Ingot",
+			Active:      true,
+			InputProducts: production.Products{
+				{Name: "Ore", Rate: 5}, {Name: "Coal", Rate: 5},
+			},
+			OutputProducts: production.Products{{Name: "SteelIngot", Rate: 5}},
+		},
+	}
+	s := newTestState(rs, []production.Producer{ore, coal})
+	s.publishOrders(testLogger())
+
+	s.spawnNewProducer(testLogger())
+
+	var f *factory.Factory
+	for _, p := range s.producers {
+		if candidate, ok := p.(*factory.Factory); ok {
+			f = candidate
+		}
+	}
+	if f == nil {
+		t.Fatal("expected a factory to spawn")
+	}
+	centroid := point.Point{X: 500, Y: 500} // midpoint of (400,400) and (600,600)
+	if got := f.Loc.Distance(centroid); got > 20 {
+		t.Errorf("expected the factory to spawn near the centroid %v of its sourceable inputs, got %v (distance %f)", centroid, f.Loc, got)
+	}
+}
+
+func Test_spawnNewProducer_never_collides_with_a_sourceable_input(t *testing.T) {
+	// Regression test: recipes.TransportCost charges an astronomical
+	// 1e12 for any contract between two points <= 1 apart (see
+	// recipes.go), specifically to stop factories from sitting exactly
+	// on top of another producer. spawnLocation must always clear that
+	// threshold, or the input it just spawned next to becomes
+	// permanently unaffordable -- exactly the bug this guards against.
+	ore := &resources.Resource{
+		Production: production.Production{Name: "Ore", Rate: 100},
+		Loc:        point.Point{X: 400, Y: 400},
+	}
+	rs := recipes.Recipes{
+		{
+			ClassName:      "Recipe_Smelt_C",
+			DisplayName:    "Smelt Ore",
+			Active:         true,
+			InputProducts:  production.Products{{Name: "Ore", Rate: 5}},
+			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
+		},
+	}
+	s := newTestState(rs, []production.Producer{ore})
+	s.publishOrders(testLogger())
+
+	s.spawnNewProducer(testLogger())
+
+	f := s.producers[len(s.producers)-1].(*factory.Factory)
+	if got := f.Loc.Distance(ore.Loc); got <= 1 {
+		t.Fatalf("factory spawned at distance %f from its seller -- recipes.TransportCost would charge 1e12", got)
+	}
+}
+
+func Test_spawnNewProducer_falls_back_to_random_location_when_unsourceable(t *testing.T) {
+	// No Ore seller exists at all -- spawnLocation must fall back to a
+	// random in-bounds location rather than defaulting to the origin or
+	// erroring.
+	rs := recipes.Recipes{
+		{
+			ClassName:      "Recipe_Smelt_C",
+			DisplayName:    "Smelt Ore",
+			Active:         true,
+			InputProducts:  production.Products{{Name: "Ore", Rate: 5}},
+			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
+		},
+	}
+	s := newTestState(rs, []production.Producer{})
+
+	s.spawnNewProducer(testLogger())
+
+	f := s.producers[0].(*factory.Factory)
+	if f.Loc.X < s.xmin || f.Loc.X > s.xmax || f.Loc.Y < s.ymin || f.Loc.Y > s.ymax {
+		t.Errorf("expected the fallback location to be within map bounds, got %v", f.Loc)
+	}
+}
+
 func Test_expectedProfit_reads_the_book(t *testing.T) {
 	buyer := factory.New("Downstream", "Recipe_Down_C", point.Point{X: 0, Y: 0}, 0,
 		production.Products{{Name: "Ingot", Rate: 5}},
