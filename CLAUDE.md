@@ -33,10 +33,7 @@ Run the backend and `npm run dev` together. In dev, Vite proxies `/state`, `/tic
 
 `State` owns the whole world: `producers`, `recipes`, a `market` (cheapest known price per product), `sinks`, RNG seed, tick counter, and world bounds. It is guarded by a `sync.Mutex`; `Tick`, `Run`, `Stop`, and `Reset` all lock.
 
-The simulation advances in **phases** driven by the tick counter. `Tick` switches on `(tick / simulatedAnnealingTicks) % 3`:
-- phase 0 — `spawnNewProducers`: pick a random location and active recipe, source its inputs, create a `Factory`, sign contracts.
-- phase 1 — `moveProducer`: every `MoveableProducer` hill-climbs toward lower transport cost.
-- phase 2 — `removeUnprofitableProducers`: group producers by product, keep the most profitable, cull factories with cancelled/incomplete/no contracts or negative profit (subject to a `lifetime` grace period and `sinks` protection).
+Each `Tick` runs the full mechanism pipeline: `publishOrders` rebuilds the order book (`market.Book`) from live producer state (unsold capacity → asks, unmet inputs → bids, sinks → standing bids); `matchOrders` crosses it into `production.Contract`s; `moveProducers` hill-climbs on transport cost; `spawnNewProducer` (probability-gated) picks a recipe by expected profit against the book and spawns it *idle* — no sourcing at spawn; `renegotiateContracts` (probability-gated) re-shops existing contracts against residual asks; `applySolvency` charges upkeep, credits salvage (unsold producing capacity earns `floorUnitPrice` per unit — the AWESOME-sink buyer of last resort), cancels sales of non-producing factories, and removes the persistently insolvent; `adjustPrices` lets sellers/buyers react locally (unsold asks decay toward marginal cost, unfilled bids escalate within an affordability cap). Demand cascades backward through recipe tiers as escalating bids — see `docs/superpowers/specs/2026-07-11-order-book-market-design.md`.
 
 `Run` launches a goroutine that ticks continuously until the cancellation context fires; `Stop` cancels it. The single cancel func is tracked via `setCancellationFunc`, which warns on double-set/double-clear.
 
@@ -47,7 +44,7 @@ The simulation advances in **phases** driven by the tick counter. `Tick` switche
 - `factory.Factory` — a recipe instance; both buys inputs and sells outputs, and is the only `MoveableProducer` (implements `Move`/`Remove`).
 - `sink.Sink` — a fixed demand point (e.g. `SpaceElevatorPart_1`), only buys.
 
-Trade happens through `production.Contract`, a pointer shared by buyer and seller. Either side may `Cancel()`, so contracts must be checked for cancellation regularly (cancelled contracts are the primary signal for culling factories). `State.writeContract` enforces capacity, computes sales price against the running `market` price, and requires both `SignAsSeller` and `SignAsBuyer` to succeed.
+Trade happens through `production.Contract`, a pointer shared by buyer and seller. Either side may `Cancel()`, so contracts must be checked for cancellation regularly (cancelled contracts are the primary signal for culling factories). `State.signContract` (`state/orders.go`) turns a matched order-book `market.Match` into a contract: it re-checks capacity, requires both `SignAsSeller` and `SignAsBuyer` to succeed, and records the traded unit price — the trade price itself is determined by matching (the ask's unit price), not computed at signing time.
 
 ### Recipes and data ingestion
 
