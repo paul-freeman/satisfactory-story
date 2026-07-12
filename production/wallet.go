@@ -34,3 +34,10 @@ func (w *Wallet) Cash() float64 {
 func (w *Wallet) InsolventFor(ticks int) bool {
 	return w.negativeTicks >= ticks
 }
+
+// Adjust moves money without touching the consecutive-negative-ticks
+// counter. Trades use Adjust (many per tick); the solvency step's single
+// Apply per tick is what advances insolvency accounting.
+func (w *Wallet) Adjust(delta float64) {
+	w.Balance += delta
+}

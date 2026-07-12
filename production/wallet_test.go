@@ -41,3 +41,18 @@ func Test_Wallet(t *testing.T) {
 		}
 	})
 }
+
+func Test_Wallet_Adjust_doesNotTouchInsolvencyCounter(t *testing.T) {
+	w := NewWallet(10)
+	w.Adjust(-15) // balance -5, but Adjust must NOT count insolvency ticks
+	if w.Cash() != -5 {
+		t.Fatalf("Cash = %v, want -5", w.Cash())
+	}
+	if w.InsolventFor(1) {
+		t.Fatal("Adjust must not advance the insolvency counter; only Apply does")
+	}
+	w.Apply(0) // the once-per-tick accounting call
+	if !w.InsolventFor(1) {
+		t.Fatal("Apply with negative balance should count one insolvent tick")
+	}
+}
