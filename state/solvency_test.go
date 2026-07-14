@@ -1,19 +1,13 @@
 package state
 
 import (
-	"log/slog"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
 	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
 )
-
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-}
 
 func Test_applySolvency(t *testing.T) {
 	t.Run("removes a factory that has been insolvent long enough", func(t *testing.T) {

@@ -37,6 +37,7 @@ type State struct {
 	// lastTrade remembers the most recent traded unit price per product,
 	// used to estimate input costs for products with no current ask.
 	lastTrade map[string]float64
+	ledger    *tradeLedger
 
 	seed   int64
 	tick   int
@@ -111,6 +112,7 @@ func (s *State) getInitialState(l *slog.Logger, logLevel *slog.Level, seed int64
 	s.recipes = recipes
 	s.book = market.NewBook()
 	s.lastTrade = make(map[string]float64)
+	s.ledger = &tradeLedger{}
 
 	s.seed = seed
 	s.tick = 0
@@ -136,18 +138,25 @@ func (s *State) Tick(parentLogger *slog.Logger) error {
 	s.tick++
 	l := parentLogger.With(slog.Int("tick", s.tick))
 
-	// Discovery first: rebuild the book from live state and cross it, so
-	// every later mechanism this tick (moving, spawning, renegotiation,
-	// solvency, price adjustment) sees post-matching reality.
+	// Physical production first, then discovery: the book is rebuilt
+	// from live stock and crossed, so every later mechanism this tick
+	// (moving, spawning, solvency, price adjustment) sees post-trade
+	// reality.
+	s.produceGoods(l)
 	s.publishOrders(l)
 	s.matchOrders(l)
 	s.moveProducers(l)
 	if s.randSrc.Float64() < spawnProbabilityPerTick {
 		s.spawnNewProducer(l)
 	}
-	s.renegotiateContracts(l)
 	s.applySolvency(l)
 	s.adjustPrices(l)
+	s.ledger.prune(s.tick, tradeMemoryTicks)
+	for _, p := range s.producers {
+		if f, ok := p.(*factory.Factory); ok {
+			f.PruneTrades(s.tick, tradeMemoryTicks)
+		}
+	}
 
 	return nil
 }

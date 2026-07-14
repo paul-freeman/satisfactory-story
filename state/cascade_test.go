@@ -40,7 +40,7 @@ func Test_cascade_single_tier(t *testing.T) {
 	goal := sink.New("Ingot", point.Point{X: 600, Y: 600},
 		production.Products{{Name: "Ingot", Rate: 1}}, goalBidUnitPrice)
 
-	s := newTestState(rs, []production.Producer{ore, goal})
+	s := newTestStateWithProducers(rs, []production.Producer{ore, goal})
 
 	const budget = 20000
 	for i := 0; i < budget && !deliveredTo(goal); i++ {
@@ -82,7 +82,7 @@ func Test_cascade_two_tier(t *testing.T) {
 	goal := sink.New("Plate", point.Point{X: 600, Y: 600},
 		production.Products{{Name: "Plate", Rate: 1}}, goalBidUnitPrice)
 
-	s := newTestState(rs, []production.Producer{ore, goal})
+	s := newTestStateWithProducers(rs, []production.Producer{ore, goal})
 
 	const budget = 50000
 	for i := 0; i < budget && !deliveredTo(goal); i++ {

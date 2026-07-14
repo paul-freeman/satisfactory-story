@@ -1,98 +1,140 @@
 package state
 
 import (
+	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
+	"github.com/paul-freeman/satisfactory-story/market"
 	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
-	"github.com/paul-freeman/satisfactory-story/recipes"
 	"github.com/paul-freeman/satisfactory-story/resources"
 )
 
-func Test_publishOrders_resource_ask_and_factory_orders(t *testing.T) {
-	ore := &resources.Resource{
-		Production: production.Production{Name: "Ore", Rate: 100},
-		Loc:        point.Point{X: 500, Y: 500},
-	}
-	idle := factory.New("Smelt", "Recipe_Smelt_C", point.Point{X: 600, Y: 600}, 0,
-		production.Products{{Name: "Ore", Rate: 5}},
-		production.Products{{Name: "Ingot", Rate: 5}}, 1000)
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+}
 
-	s := newTestState(recipes.Recipes{}, []production.Producer{ore, idle})
-	s.publishOrders(testLogger())
-
-	if asks := s.book.Asks("Ore"); len(asks) != 1 || asks[0].Remaining != 100 {
-		t.Fatalf("expected one Ore ask at rate 100, got %+v", asks)
-	}
-	if bids := s.book.Bids("Ore"); len(bids) != 1 || bids[0].Remaining != 5 {
-		t.Fatalf("expected one Ore bid at rate 5, got %+v", bids)
-	}
-	// The factory is idle (no input contracts) so it must not offer output.
-	if asks := s.book.Asks("Ingot"); len(asks) != 0 {
-		t.Fatalf("an idle factory must not publish asks, got %+v", asks)
+func newTestState() *State {
+	return &State{
+		book:      market.NewBook(),
+		lastTrade: make(map[string]float64),
+		ledger:    &tradeLedger{},
 	}
 }
 
-func Test_matchOrders_signs_contract_and_records_trade(t *testing.T) {
-	ore := &resources.Resource{
-		Production: production.Production{Name: "Ore", Rate: 100},
-		Loc:        point.Point{X: 500, Y: 500},
-	}
-	buyer := factory.New("Smelt", "Recipe_Smelt_C", point.Point{X: 600, Y: 600}, 0,
-		production.Products{{Name: "Ore", Rate: 5}},
-		production.Products{{Name: "Ingot", Rate: 5}}, 1000)
-	buyer.SetBidPrice("Ore", 50.0) // rich enough to cover ask + transport
-
-	s := newTestState(recipes.Recipes{}, []production.Producer{ore, buyer})
-	s.publishOrders(testLogger())
-	s.matchOrders(testLogger())
-
-	if !buyer.Producing() {
-		t.Fatal("expected the buyer's Ore input to be fully contracted")
-	}
-	if got := ore.RemainingCapacityFor("Ore"); got != 95 {
-		t.Errorf("expected 95 capacity left on the ore node, got %f", got)
-	}
-	if len(buyer.Purchases) != 1 {
-		t.Fatalf("expected 1 purchase, got %d", len(buyer.Purchases))
-	}
-	p := buyer.Purchases[0]
-	wantCost := production.DefaultUnitPrice * 5 // ask price * rate
-	if p.ProductCost != wantCost {
-		t.Errorf("expected ProductCost %f, got %f", wantCost, p.ProductCost)
-	}
-	wantTransport := recipes.UnitTransportCost(ore.Loc, buyer.Loc) * p.Order.Rate
-	if p.TransportCost != wantTransport {
-		t.Errorf("expected TransportCost %f, got %f", wantTransport, p.TransportCost)
-	}
-	if got := s.lastTrade["Ore"]; got != production.DefaultUnitPrice {
-		t.Errorf("expected lastTrade recorded at %f, got %f", production.DefaultUnitPrice, got)
-	}
-}
-
-func Test_matchOrders_goal_sink_buys_available_capacity(t *testing.T) {
-	// A resource node standing in for a finished-part producer, matching
-	// the fixture style of the old sourceSinks test.
-	seller := &resources.Resource{
-		Production: production.Production{Name: "SpaceElevatorPart_1", Rate: 5},
+func Test_publishOrders_stockBacked(t *testing.T) {
+	s := newTestState()
+	r := &resources.Resource{
+		Production: production.Production{Name: "OreIron", Rate: 1},
 		Loc:        point.Point{X: 0, Y: 0},
+		Stock:      7,
 	}
-	rs := recipes.Recipes{
-		{DisplayName: "A", OutputProducts: production.Products{{Name: "SpaceElevatorPart_1", Rate: 1}}},
-	}
-	sinks := newSinks(rs, 0, 1000, 0, 1000)
-
-	producers := []production.Producer{seller}
-	for _, sk := range sinks {
-		producers = append(producers, sk)
-	}
-	s := newTestState(rs, producers)
+	f := factory.New("Smelter", "Recipe_IngotIron_C", point.Point{X: 100, Y: 0}, 0,
+		production.Products{production.Production{Name: "OreIron", Rate: 1}},
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		1000)
+	f.OutputStock.Add("IronIngot", 3)
+	f.InputStock.Add("OreIron", 10) // target is 60 -> hunger 50
+	s.producers = []production.Producer{r, f}
 
 	s.publishOrders(testLogger())
-	s.matchOrders(testLogger())
 
-	if got := seller.RemainingCapacityFor("SpaceElevatorPart_1"); got != 0 {
-		t.Errorf("expected the goal sink to buy all capacity, got %f left", got)
+	ask, ok := s.book.BestAsk("OreIron")
+	if !ok || ask.Remaining != 7 {
+		t.Fatalf("resource ask = %+v (ok=%v), want remaining 7 (stock-backed)", ask, ok)
+	}
+	ingotAsk, ok := s.book.BestAsk("IronIngot")
+	if !ok || ingotAsk.Remaining != 3 {
+		t.Fatalf("factory ask = %+v (ok=%v), want remaining 3 (stock-backed)", ingotAsk, ok)
+	}
+	bid, ok := s.book.BestBid("OreIron")
+	if !ok || bid.Remaining != 50 {
+		t.Fatalf("factory bid = %+v (ok=%v), want remaining 50 (hunger)", bid, ok)
+	}
+}
+
+func Test_executeTrade_movesGoodsAndMoney(t *testing.T) {
+	s := newTestState()
+	s.tick = 42
+	r := &resources.Resource{
+		Production: production.Production{Name: "OreIron", Rate: 1},
+		Loc:        point.Point{X: 0, Y: 0},
+		Stock:      10,
+	}
+	f := factory.New("Smelter", "Recipe_IngotIron_C", point.Point{X: 10000, Y: 0}, 0,
+		production.Products{production.Production{Name: "OreIron", Rate: 1}},
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		100)
+	s.producers = []production.Producer{r, f}
+
+	m := market.Match{
+		Seller:        r,
+		Buyer:         f,
+		Order:         production.Production{Name: "OreIron", Rate: 4},
+		UnitPrice:     2.0,
+		UnitTransport: 1.1,
+	}
+	executed, err := s.executeTrade(testLogger(), m)
+	if err != nil {
+		t.Fatalf("executeTrade error: %v", err)
+	}
+	if executed != 4 {
+		t.Fatalf("executed = %v, want 4", executed)
+	}
+	if r.Stock != 6 {
+		t.Fatalf("seller stock = %v, want 6", r.Stock)
+	}
+	if got := f.InputStock.Get("OreIron"); got != 4 {
+		t.Fatalf("buyer input stock = %v, want 4", got)
+	}
+	// Buyer paid (2.0 + 1.1) * 4 = 12.4
+	if got := f.Wallet.Cash(); got < 87.59 || got > 87.61 {
+		t.Fatalf("buyer cash = %v, want 87.6", got)
+	}
+	if got := f.TickInputSpend; got < 12.39 || got > 12.41 {
+		t.Fatalf("TickInputSpend = %v, want 12.4", got)
+	}
+	if s.lastTrade["OreIron"] != 2.0 {
+		t.Fatalf("lastTrade = %v, want 2.0", s.lastTrade["OreIron"])
+	}
+	if len(s.ledger.trades) != 1 || s.ledger.trades[0].qty != 4 {
+		t.Fatalf("ledger = %+v, want one trade of qty 4", s.ledger.trades)
+	}
+	if len(f.RecentTrades) != 1 || f.RecentTrades[0].Other != r.Location() {
+		t.Fatalf("buyer trade memory = %+v, want seller location recorded", f.RecentTrades)
+	}
+}
+
+func Test_executeTrade_budgetClamp(t *testing.T) {
+	s := newTestState()
+	r := &resources.Resource{
+		Production: production.Production{Name: "OreIron", Rate: 1},
+		Loc:        point.Point{X: 0, Y: 0},
+		Stock:      10,
+	}
+	f := factory.New("Smelter", "Recipe_IngotIron_C", point.Point{X: 10000, Y: 0}, 0,
+		production.Products{production.Production{Name: "OreIron", Rate: 1}},
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		6.2) // can only afford 2 units at 3.1 delivered
+	s.producers = []production.Producer{r, f}
+
+	m := market.Match{
+		Seller:        r,
+		Buyer:         f,
+		Order:         production.Production{Name: "OreIron", Rate: 10},
+		UnitPrice:     2.0,
+		UnitTransport: 1.1,
+	}
+	executed, err := s.executeTrade(testLogger(), m)
+	if err != nil {
+		t.Fatalf("executeTrade error: %v", err)
+	}
+	if executed < 1.99 || executed > 2.01 {
+		t.Fatalf("executed = %v, want 2 (wallet clamp)", executed)
+	}
+	if got := f.Wallet.Cash(); got < -0.01 || got > 0.01 {
+		t.Fatalf("buyer cash = %v, want ~0 (never negative from a purchase)", got)
 	}
 }

@@ -13,12 +13,13 @@ import (
 	"github.com/paul-freeman/satisfactory-story/resources"
 )
 
-func newTestState(rs recipes.Recipes, producers []production.Producer) *State {
+func newTestStateWithProducers(rs recipes.Recipes, producers []production.Producer) *State {
 	return &State{
 		recipes:   rs,
 		producers: producers,
 		book:      market.NewBook(),
 		lastTrade: make(map[string]float64),
+		ledger:    &tradeLedger{},
 		randSrc:   rand.New(rand.NewSource(1)),
 		xmin:      0, xmax: 1000, ymin: 0, ymax: 1000,
 	}
@@ -37,7 +38,7 @@ func Test_spawnNewProducer_spawns_idle_without_sourcing(t *testing.T) {
 			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
 		},
 	}
-	s := newTestState(rs, []production.Producer{})
+	s := newTestStateWithProducers(rs, []production.Producer{})
 
 	s.spawnNewProducer(testLogger())
 
@@ -71,7 +72,7 @@ func Test_spawnNewProducer_initializes_bids_at_best_ask(t *testing.T) {
 			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
 		},
 	}
-	s := newTestState(rs, []production.Producer{ore})
+	s := newTestStateWithProducers(rs, []production.Producer{ore})
 	s.publishOrders(testLogger())
 
 	s.spawnNewProducer(testLogger())
@@ -109,7 +110,7 @@ func Test_spawnNewProducer_spawns_near_a_sourceable_input(t *testing.T) {
 			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
 		},
 	}
-	s := newTestState(rs, []production.Producer{ore})
+	s := newTestStateWithProducers(rs, []production.Producer{ore})
 	s.publishOrders(testLogger())
 
 	s.spawnNewProducer(testLogger())
@@ -155,7 +156,7 @@ func Test_spawnNewProducer_spawns_at_centroid_of_multiple_sourceable_inputs(t *t
 			OutputProducts: production.Products{{Name: "SteelIngot", Rate: 5}},
 		},
 	}
-	s := newTestState(rs, []production.Producer{ore, coal})
+	s := newTestStateWithProducers(rs, []production.Producer{ore, coal})
 	s.publishOrders(testLogger())
 
 	s.spawnNewProducer(testLogger())
@@ -195,7 +196,7 @@ func Test_spawnNewProducer_never_collides_with_a_sourceable_input(t *testing.T) 
 			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
 		},
 	}
-	s := newTestState(rs, []production.Producer{ore})
+	s := newTestStateWithProducers(rs, []production.Producer{ore})
 	s.publishOrders(testLogger())
 
 	s.spawnNewProducer(testLogger())
@@ -219,7 +220,7 @@ func Test_spawnNewProducer_falls_back_to_random_location_when_unsourceable(t *te
 			OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
 		},
 	}
-	s := newTestState(rs, []production.Producer{})
+	s := newTestStateWithProducers(rs, []production.Producer{})
 
 	s.spawnNewProducer(testLogger())
 
@@ -240,7 +241,7 @@ func Test_expectedProfit_reads_the_book(t *testing.T) {
 		InputProducts:  production.Products{{Name: "Ore", Rate: 5}},
 		OutputProducts: production.Products{{Name: "Ingot", Rate: 5}},
 	}
-	s := newTestState(recipes.Recipes{recipe}, []production.Producer{})
+	s := newTestStateWithProducers(recipes.Recipes{recipe}, []production.Producer{})
 
 	// No bids at all: revenue falls back to the floor price.
 	wantFloor := floorUnitPrice*5 - (unknownInputUnitCost*5 + upkeepPerTick)

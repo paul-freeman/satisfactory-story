@@ -1,7 +1,6 @@
 package state
 
 import (
-	"fmt"
 	"log/slog"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
@@ -12,9 +11,9 @@ import (
 	"github.com/paul-freeman/satisfactory-story/sink"
 )
 
-// publishOrders rebuilds the book from live producer state: every unsold
-// unit of capacity becomes an ask, every unmet unit of demand becomes a
-// bid. Zero-rate orders are dropped by the book itself. Only prices
+// publishOrders rebuilds the book from live physical state: every unit
+// of stock on hand becomes an ask, every unit of input hunger becomes a
+// bid. Zero-quantity orders are dropped by the book itself. Only prices
 // persist between ticks (on the producers); quantities can never go
 // stale because they are re-derived here every tick.
 func (s *State) publishOrders(_ *slog.Logger) {
@@ -23,21 +22,16 @@ func (s *State) publishOrders(_ *slog.Logger) {
 		switch producer := p.(type) {
 		case *resources.Resource:
 			name := producer.Production.Name
-			s.book.PostAsk(producer, name,
-				producer.RemainingCapacityFor(name), producer.AskPriceFor(name))
+			s.book.PostAsk(producer, name, producer.Stock, producer.AskPriceFor(name))
 		case *factory.Factory:
-			// An idle factory sells nothing -- its capacity is
-			// hypothetical until its inputs are contracted.
-			if producer.Producing() {
-				for _, output := range producer.Output {
-					s.book.PostAsk(producer, output.Name,
-						producer.RemainingCapacityFor(output.Name),
-						producer.AskPriceFor(output.Name))
-				}
+			for _, output := range producer.Output {
+				s.book.PostAsk(producer, output.Name,
+					producer.OutputStock.Get(output.Name),
+					producer.AskPriceFor(output.Name))
 			}
 			for _, input := range producer.Input {
 				s.book.PostBid(producer, input.Name,
-					producer.UnmetInputRate(input.Name),
+					producer.Hunger(input.Name, inputStockTargetTicks),
 					producer.BidPriceFor(input.Name))
 			}
 		case *sink.Sink:
@@ -48,45 +42,75 @@ func (s *State) publishOrders(_ *slog.Logger) {
 	}
 }
 
-// matchOrders crosses the book and signs a contract for every match.
+// matchOrders crosses the book and executes a spot trade per match.
 func (s *State) matchOrders(l *slog.Logger) {
 	s.book.MatchAll(recipes.UnitTransportCost, func(m market.Match) (float64, error) {
-		if err := s.signContract(l, m); err != nil {
-			return 0, err
-		}
-		return m.Order.Rate, nil
+		return s.executeTrade(l, m)
 	})
 }
 
-// signContract turns a match into a signed production.Contract. It is
-// the only place matched trades become real: capacity is re-checked
-// against live state (the book's Remaining is bookkeeping, not
-// authority), both parties sign, and the traded unit price is recorded.
-func (s *State) signContract(l *slog.Logger, m market.Match) error {
-	if err := m.Seller.HasCapacityFor(m.Order); err != nil {
-		return fmt.Errorf("cannot sign contract: %w", err)
+// executeTrade is the only place trades become real: quantity is
+// re-clamped against live seller stock and the buyer's wallet, then
+// units and money move immediately. Returns the executed quantity.
+// A factory buyer pays (unit price + unit transport) per unit and can
+// never overdraw its wallet -- this hard budget is what keeps escalated
+// bid prices honest. The transport share of the payment leaves the
+// economy (it is a cost, not anyone's income).
+func (s *State) executeTrade(l *slog.Logger, m market.Match) (float64, error) {
+	qty := m.Order.Rate
+
+	// Clamp by what the seller physically has.
+	switch seller := m.Seller.(type) {
+	case *resources.Resource:
+		if seller.Stock < qty {
+			qty = seller.Stock
+		}
+	case *factory.Factory:
+		if have := seller.OutputStock.Get(m.Order.Name); have < qty {
+			qty = have
+		}
+	default:
+		return 0, nil // sinks never sell
 	}
-	contract := &production.Contract{
-		Seller:        m.Seller,
-		Buyer:         m.Buyer,
-		Order:         m.Order,
-		TransportCost: m.UnitTransport * m.Order.Rate,
-		ProductCost:   m.UnitPrice * m.Order.Rate,
+
+	// Clamp by what the buyer can pay (sinks have infinite money).
+	unitDelivered := m.UnitPrice + m.UnitTransport
+	if buyer, ok := m.Buyer.(*factory.Factory); ok && unitDelivered > 0 {
+		if affordable := buyer.Wallet.Cash() / unitDelivered; affordable < qty {
+			qty = affordable
+		}
 	}
-	if err := m.Seller.SignAsSeller(contract); err != nil {
-		contract.Cancel()
-		return fmt.Errorf("seller rejected contract: %w", err)
+	if qty <= production.RateEpsilon {
+		return 0, nil
 	}
-	if err := m.Buyer.SignAsBuyer(contract); err != nil {
-		contract.Cancel()
-		return fmt.Errorf("buyer rejected contract: %w", err)
+
+	// Move the goods.
+	switch seller := m.Seller.(type) {
+	case *resources.Resource:
+		seller.Stock -= qty
+	case *factory.Factory:
+		seller.OutputStock.Take(m.Order.Name, qty)
+		seller.TickRevenue += qty * m.UnitPrice
+		seller.Wallet.Adjust(qty * m.UnitPrice)
+		seller.RecordTrade(s.tick, m.Buyer.Location(), qty)
 	}
+	switch buyer := m.Buyer.(type) {
+	case *factory.Factory:
+		buyer.InputStock.Add(m.Order.Name, qty)
+		buyer.Wallet.Adjust(-qty * unitDelivered)
+		buyer.TickInputSpend += qty * unitDelivered
+		buyer.RecordTrade(s.tick, m.Seller.Location(), qty)
+	case *sink.Sink:
+		buyer.RecordDelivery(m.Order.Name, qty)
+	}
+
 	s.lastTrade[m.Order.Name] = m.UnitPrice
-	l.Debug("signed contract",
-		slog.String("order", m.Order.Key()),
-		slog.Float64("rate", m.Order.Rate),
+	s.ledger.record(s.tick, m.Seller, m.Buyer, m.Order.Name, qty, m.UnitPrice)
+	l.Debug("executed trade",
+		slog.String("product", m.Order.Name),
+		slog.Float64("qty", qty),
 		slog.Float64("unitPrice", m.UnitPrice),
-		slog.Float64("transportCost", m.UnitTransport*m.Order.Rate),
+		slog.Float64("unitTransport", m.UnitTransport),
 	)
-	return nil
+	return qty, nil
 }

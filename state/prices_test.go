@@ -17,7 +17,7 @@ func Test_adjustPrices_ask_dynamics(t *testing.T) {
 			Production: production.Production{Name: "Ore", Rate: 100},
 			Loc:        point.Point{X: 500, Y: 500},
 		}
-		s := newTestState(recipes.Recipes{}, []production.Producer{ore})
+		s := newTestStateWithProducers(recipes.Recipes{}, []production.Producer{ore})
 		s.publishOrders(testLogger()) // ask goes unmatched -- nobody bids
 
 		s.adjustPrices(testLogger())
@@ -46,7 +46,7 @@ func Test_adjustPrices_ask_dynamics(t *testing.T) {
 			production.Products{{Name: "Ingot", Rate: 5}}, 1000)
 		buyer.SetBidPrice("Ore", 100.0)
 
-		s := newTestState(recipes.Recipes{}, []production.Producer{ore, buyer})
+		s := newTestStateWithProducers(recipes.Recipes{}, []production.Producer{ore, buyer})
 		s.publishOrders(testLogger())
 		s.matchOrders(testLogger()) // consumes the whole ask
 
@@ -70,7 +70,7 @@ func Test_adjustPrices_ask_dynamics(t *testing.T) {
 		// marginal cost = (12 + upkeep) / 4 = 3.125 > current default ask 1.0
 		f.SetAskPrice("Ingot", 1.0)
 
-		s := newTestState(recipes.Recipes{}, []production.Producer{f})
+		s := newTestStateWithProducers(recipes.Recipes{}, []production.Producer{f})
 		s.publishOrders(testLogger()) // producing, unsold ask
 
 		s.adjustPrices(testLogger())
@@ -91,7 +91,7 @@ func Test_adjustPrices_bid_dynamics(t *testing.T) {
 			production.Products{{Name: "Ingot", Rate: 5}},
 			production.Products{{Name: "Plate", Rate: 5}}, 1000)
 
-		s := newTestState(recipes.Recipes{}, []production.Producer{f, rich})
+		s := newTestStateWithProducers(recipes.Recipes{}, []production.Producer{f, rich})
 		rich.SetBidPrice("Ingot", 40.0) // huge downstream willingness
 		s.publishOrders(testLogger())
 		// No Ore seller exists: f's bid stays unfilled.
@@ -109,7 +109,7 @@ func Test_adjustPrices_bid_dynamics(t *testing.T) {
 			production.Products{{Name: "Ore", Rate: 5}},
 			production.Products{{Name: "Ingot", Rate: 5}}, 1000)
 
-		s := newTestState(recipes.Recipes{}, []production.Producer{f})
+		s := newTestStateWithProducers(recipes.Recipes{}, []production.Producer{f})
 		// Nobody bids on Ingot: achievable revenue is only the salvage
 		// floor (5 * 0.1 = 0.5), nowhere near the planned spend of an
 		// escalated 3.0-and-up bid on 5 units of Ore.
@@ -132,7 +132,7 @@ func Test_adjustPrices_bid_dynamics(t *testing.T) {
 		for _, sk := range sinks {
 			producers = append(producers, sk)
 		}
-		s := newTestState(rs, producers)
+		s := newTestStateWithProducers(rs, producers)
 		s.publishOrders(testLogger())
 
 		s.adjustPrices(testLogger())
