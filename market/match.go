@@ -8,27 +8,26 @@ import (
 	"github.com/paul-freeman/satisfactory-story/production"
 )
 
-// Match is a crossed bid/ask pair ready to become a contract. The trade
-// executes at the ask's unit price; the contract's ProductCost is
-// UnitPrice * Order.Rate.
+// Match is a crossed bid/ask pair ready to execute as a one-shot trade.
+// The trade executes at the ask's unit price; the buyer additionally
+// pays UnitTransport per unit of freight.
 type Match struct {
 	Seller        production.Producer
 	Buyer         production.Producer
-	Order         production.Production
+	Order         production.Production // Rate = candidate quantity (units)
 	UnitPrice     float64
-	TransportCost float64
+	UnitTransport float64
 }
 
-// MatchAll crosses bids and asks product by product and calls sign for
-// each match. Bids are served in descending price order (ties by posting
-// order); each bid takes the ask with the lowest per-unit delivered cost
-// (ask price plus transport amortized over the candidate rate) until no
-// ask it can afford remains. If sign returns an error the ask is skipped
-// for that bid and nothing is consumed.
-//
-// Transport is passed in (rather than importing recipes) so tests can
-// use simple geometries.
-func (b *Book) MatchAll(transport func(origin, destination point.Point) float64, sign func(Match) error) {
+// MatchAll crosses bids and asks product by product and calls execute
+// for each match. Bids are served in descending price order (ties by
+// posting order); each bid takes the ask with the lowest per-unit
+// delivered cost (ask price plus per-unit transport) it can cross.
+// execute returns the quantity actually traded (the state layer clamps
+// by seller stock and buyer budget): 0 or an error skips that ask for
+// this bid; a partial execution ends this bid's shopping (its budget is
+// exhausted).
+func (b *Book) MatchAll(unitTransport func(origin, destination point.Point) float64, execute func(Match) (float64, error)) {
 	for _, product := range b.Products() {
 		bids := make([]*Bid, len(b.bids[product]))
 		copy(bids, b.bids[product])
@@ -38,23 +37,29 @@ func (b *Book) MatchAll(transport func(origin, destination point.Point) float64,
 		for _, bid := range bids {
 			skipped := make(map[*Ask]bool)
 			for bid.Remaining > production.RateEpsilon {
-				ask, rate, unitCost := b.bestDeliveredAsk(product, bid, skipped, transport)
+				ask, qty, unitCost := b.bestDeliveredAsk(product, bid, skipped, unitTransport)
 				if ask == nil || bid.UnitPrice < unitCost {
 					break
 				}
 				m := Match{
 					Seller:        ask.Seller,
 					Buyer:         bid.Buyer,
-					Order:         production.Production{Name: product, Rate: rate},
+					Order:         production.Production{Name: product, Rate: qty},
 					UnitPrice:     ask.UnitPrice,
-					TransportCost: transport(ask.Seller.Location(), bid.Buyer.Location()),
+					UnitTransport: unitTransport(ask.Seller.Location(), bid.Buyer.Location()),
 				}
-				if err := sign(m); err != nil {
+				executed, err := execute(m)
+				if err != nil || executed <= production.RateEpsilon {
 					skipped[ask] = true
 					continue
 				}
-				ask.Remaining -= rate
-				bid.Remaining -= rate
+				ask.Remaining -= executed
+				bid.Remaining -= executed
+				if executed < qty-production.RateEpsilon {
+					// Partial fill: the buyer ran out of money; further
+					// asks are unaffordable too this tick.
+					break
+				}
 			}
 		}
 	}
@@ -62,24 +67,24 @@ func (b *Book) MatchAll(transport func(origin, destination point.Point) float64,
 
 // bestDeliveredAsk returns the live ask with the lowest per-unit
 // delivered cost for this bid (nil if none remains), along with the
-// candidate rate and that per-unit cost.
+// candidate quantity and that per-unit cost.
 func (b *Book) bestDeliveredAsk(
 	product string,
 	bid *Bid,
 	skipped map[*Ask]bool,
-	transport func(point.Point, point.Point) float64,
+	unitTransport func(point.Point, point.Point) float64,
 ) (*Ask, float64, float64) {
 	var best *Ask
-	var bestRate, bestCost float64
+	var bestQty, bestCost float64
 	for _, ask := range b.asks[product] {
 		if skipped[ask] || ask.Remaining <= production.RateEpsilon || ask.Seller == bid.Buyer {
 			continue
 		}
-		rate := math.Min(bid.Remaining, ask.Remaining)
-		unitCost := ask.UnitPrice + transport(ask.Seller.Location(), bid.Buyer.Location())/rate
+		qty := math.Min(bid.Remaining, ask.Remaining)
+		unitCost := ask.UnitPrice + unitTransport(ask.Seller.Location(), bid.Buyer.Location())
 		if best == nil || unitCost < bestCost {
-			best, bestRate, bestCost = ask, rate, unitCost
+			best, bestQty, bestCost = ask, qty, unitCost
 		}
 	}
-	return best, bestRate, bestCost
+	return best, bestQty, bestCost
 }

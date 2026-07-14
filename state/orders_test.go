@@ -62,7 +62,7 @@ func Test_matchOrders_signs_contract_and_records_trade(t *testing.T) {
 	if p.ProductCost != wantCost {
 		t.Errorf("expected ProductCost %f, got %f", wantCost, p.ProductCost)
 	}
-	wantTransport := recipes.TransportCost(ore.Loc, buyer.Loc)
+	wantTransport := recipes.UnitTransportCost(ore.Loc, buyer.Loc) * p.Order.Rate
 	if p.TransportCost != wantTransport {
 		t.Errorf("expected TransportCost %f, got %f", wantTransport, p.TransportCost)
 	}

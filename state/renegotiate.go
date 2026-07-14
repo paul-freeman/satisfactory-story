@@ -57,7 +57,7 @@ func (s *State) renegotiateContracts(l *slog.Logger) {
 				Buyer:         f,
 				Order:         purchase.Order,
 				UnitPrice:     ask.UnitPrice,
-				TransportCost: transportCost,
+				UnitTransport: transportCost / purchase.Order.Rate,
 			}
 			if err := s.signContract(l, m); err != nil {
 				l.Debug("failed to renegotiate contract", slog.String("error", err.Error()))

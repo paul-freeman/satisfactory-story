@@ -50,8 +50,11 @@ func (s *State) publishOrders(_ *slog.Logger) {
 
 // matchOrders crosses the book and signs a contract for every match.
 func (s *State) matchOrders(l *slog.Logger) {
-	s.book.MatchAll(recipes.TransportCost, func(m market.Match) error {
-		return s.signContract(l, m)
+	s.book.MatchAll(recipes.UnitTransportCost, func(m market.Match) (float64, error) {
+		if err := s.signContract(l, m); err != nil {
+			return 0, err
+		}
+		return m.Order.Rate, nil
 	})
 }
 
@@ -67,7 +70,7 @@ func (s *State) signContract(l *slog.Logger, m market.Match) error {
 		Seller:        m.Seller,
 		Buyer:         m.Buyer,
 		Order:         m.Order,
-		TransportCost: m.TransportCost,
+		TransportCost: m.UnitTransport * m.Order.Rate,
 		ProductCost:   m.UnitPrice * m.Order.Rate,
 	}
 	if err := m.Seller.SignAsSeller(contract); err != nil {
@@ -83,7 +86,7 @@ func (s *State) signContract(l *slog.Logger, m market.Match) error {
 		slog.String("order", m.Order.Key()),
 		slog.Float64("rate", m.Order.Rate),
 		slog.Float64("unitPrice", m.UnitPrice),
-		slog.Float64("transportCost", m.TransportCost),
+		slog.Float64("transportCost", m.UnitTransport*m.Order.Rate),
 	)
 	return nil
 }
