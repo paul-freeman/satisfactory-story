@@ -2,6 +2,7 @@ package factory
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
@@ -28,6 +29,24 @@ type Factory struct {
 	AskPrices map[string]float64
 	BidPrices map[string]float64
 
+	// InputStock and OutputStock hold real goods. Production consumes
+	// from InputStock into OutputStock; trades move units between a
+	// seller's OutputStock and a buyer's InputStock.
+	InputStock  production.Inventory
+	OutputStock production.Inventory
+	// ProducedLastTick records whether the recipe ran at all last tick
+	// (observability, not a contractual state).
+	ProducedLastTick bool
+	// TickInputSpend / TickRevenue accumulate this tick's trade flows;
+	// the solvency step folds them into the EMAs and zeroes them.
+	TickInputSpend float64
+	TickRevenue    float64
+	AvgInputSpend  float64
+	AvgRevenue     float64
+	// RecentTrades is this factory's own memory of who it traded with,
+	// used for the movement gradient.
+	RecentTrades []TradeMemory
+
 	production.Wallet
 }
 
@@ -51,6 +70,8 @@ func New(
 		Sales:       make([]*production.Contract, 0),
 		AskPrices:   make(map[string]float64),
 		BidPrices:   make(map[string]float64),
+		InputStock:  make(production.Inventory),
+		OutputStock: make(production.Inventory),
 		Wallet:      production.NewWallet(seedCapital),
 	}
 }
@@ -355,4 +376,101 @@ func (f *Factory) MarginalUnitCost(upkeep float64) float64 {
 		return cost
 	}
 	return cost / totalRate
+}
+
+// TradeMemory is one remembered trade endpoint: where the counterparty
+// was and how much moved. Movement hill-climbs on these.
+type TradeMemory struct {
+	Tick  int
+	Other point.Point
+	Qty   float64
+}
+
+// ProduceTick runs up to one tick of the recipe, limited by input stock
+// and by room left under the output cap (outputCapTicks x output rate
+// per product). Returns the fraction of a full tick actually run.
+func (f *Factory) ProduceTick(outputCapTicks float64) float64 {
+	frac := 1.0
+	for _, in := range f.Input {
+		if in.Rate <= production.RateEpsilon {
+			continue
+		}
+		frac = math.Min(frac, f.InputStock.Get(in.Name)/in.Rate)
+	}
+	for _, out := range f.Output {
+		if out.Rate <= production.RateEpsilon {
+			continue
+		}
+		room := out.Rate*outputCapTicks - f.OutputStock.Get(out.Name)
+		frac = math.Min(frac, room/out.Rate)
+	}
+	frac = math.Max(0, math.Min(1, frac))
+	if frac <= production.RateEpsilon {
+		f.ProducedLastTick = false
+		return 0
+	}
+	for _, in := range f.Input {
+		f.InputStock.Take(in.Name, in.Rate*frac)
+	}
+	for _, out := range f.Output {
+		f.OutputStock.Add(out.Name, out.Rate*frac)
+	}
+	f.ProducedLastTick = true
+	return frac
+}
+
+// Hunger is how many units of the named input the factory wants to buy
+// right now: the gap between its input-stock target and what it holds.
+func (f *Factory) Hunger(name string, targetTicks float64) float64 {
+	for _, in := range f.Input {
+		if in.Name != name {
+			continue
+		}
+		h := in.Rate*targetTicks - f.InputStock.Get(name)
+		if h < 0 {
+			return 0
+		}
+		return h
+	}
+	return 0
+}
+
+// RecordTrade remembers a trade endpoint for the movement gradient.
+func (f *Factory) RecordTrade(tick int, other point.Point, qty float64) {
+	f.RecentTrades = append(f.RecentTrades, TradeMemory{Tick: tick, Other: other, Qty: qty})
+}
+
+// PruneTrades drops remembered trades older than memoryTicks.
+func (f *Factory) PruneTrades(tick, memoryTicks int) {
+	kept := f.RecentTrades[:0]
+	for _, tr := range f.RecentTrades {
+		if tick-tr.Tick <= memoryTicks {
+			kept = append(kept, tr)
+		}
+	}
+	f.RecentTrades = kept
+}
+
+// FoldTickFlows folds this tick's accumulated spend/revenue into the
+// exponential moving averages and zeroes the accumulators. Called once
+// per tick by the solvency step.
+func (f *Factory) FoldTickFlows(smoothing float64) {
+	f.AvgInputSpend = f.AvgInputSpend*(1-smoothing) + f.TickInputSpend*smoothing
+	f.AvgRevenue = f.AvgRevenue*(1-smoothing) + f.TickRevenue*smoothing
+	f.TickInputSpend = 0
+	f.TickRevenue = 0
+}
+
+// StockMarginalUnitCost is the stock-world cost basis per output unit:
+// smoothed input spend plus upkeep, spread over total output rate. The
+// floor for ask-price decay.
+func (f *Factory) StockMarginalUnitCost(upkeep float64) float64 {
+	totalRate := 0.0
+	for _, out := range f.Output {
+		totalRate += out.Rate
+	}
+	if totalRate <= production.RateEpsilon {
+		return upkeep
+	}
+	return (f.AvgInputSpend + upkeep) / totalRate
 }
