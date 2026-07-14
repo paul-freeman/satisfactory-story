@@ -6,7 +6,6 @@ import (
 
 	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
-	"github.com/paul-freeman/satisfactory-story/recipes"
 )
 
 type Sink struct {
@@ -41,7 +40,8 @@ func New(
 
 // IsMovable implements producer.
 func (f *Sink) IsMovable() bool {
-	return true
+	// Sinks are the player's base: fixed at world center.
+	return false
 }
 
 // IsRemovable implements producer.
@@ -150,52 +150,4 @@ func (f *Sink) TotalDelivered() float64 {
 	return total
 }
 
-func (f *Sink) Move() error {
-	up := f.Loc.Up(1)
-	down := f.Loc.Down(1)
-	left := f.Loc.Left(1)
-	right := f.Loc.Right(1)
-
-	costsHere := f.transportCostsAt(f.Loc)
-	costsUp := f.transportCostsAt(up)
-	costsDown := f.transportCostsAt(down)
-	costsLeft := f.transportCostsAt(left)
-	costsRight := f.transportCostsAt(right)
-
-	if costsUp <= costsHere && costsUp <= costsDown && costsUp <= costsLeft && costsUp <= costsRight {
-		f.moveTo(f.Loc.Up(1))
-		return nil
-	}
-	if costsDown <= costsHere && costsDown <= costsUp && costsDown <= costsLeft && costsDown <= costsRight {
-		f.moveTo(f.Loc.Down(1))
-		return nil
-	}
-	if costsLeft <= costsHere && costsLeft <= costsUp && costsLeft <= costsDown && costsLeft <= costsRight {
-		f.moveTo(f.Loc.Left(1))
-		return nil
-	}
-	if costsRight <= costsHere && costsRight <= costsUp && costsRight <= costsDown && costsRight <= costsLeft {
-		f.moveTo(f.Loc.Right(1))
-		return nil
-	}
-
-	return nil
-}
-
 var _ production.Producer = (*Sink)(nil)
-
-func (f *Sink) transportCostsAt(p point.Point) float64 {
-	c := 0.0
-	for _, purchase := range f.Purchases {
-		c += recipes.TransportCost(p, purchase.Seller.Location())
-	}
-	return c
-}
-
-func (f *Sink) moveTo(loc point.Point) {
-	f.Loc = loc
-	for _, purchase := range f.Purchases {
-		purchase.TransportCost = recipes.TransportCost(purchase.Seller.Location(), loc)
-	}
-	return
-}

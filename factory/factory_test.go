@@ -186,25 +186,20 @@ func Test_Factory_Move_climbs_toward_lower_transport_cost(t *testing.T) {
 		production.Products{{Name: "Ore", Rate: 5}},
 		production.Products{{Name: "Ingot", Rate: 5}}, 0)
 
-	// A real contract still gives Move() a gradient to climb -- this
-	// guards against the fix for the contractless case accidentally
+	// A real trade partner still gives Move() a gradient to climb -- this
+	// guards against the fix for the tradeless case accidentally
 	// disabling movement altogether.
-	seller := New("Seller", "Recipe_Seller_C", point.Point{X: 600, Y: 500}, 0,
-		production.Products{}, production.Products{{Name: "Ore", Rate: 5}}, 0)
-	purchase := &production.Contract{
-		Seller: seller,
-		Order:  production.Production{Name: "Ore", Rate: 5},
-	}
-	f.Purchases = append(f.Purchases, purchase)
+	sellerLoc := point.Point{X: 600, Y: 500}
+	f.RecordTrade(1, sellerLoc, 5)
 
 	if err := f.Move(); err != nil {
 		t.Fatalf("Move returned an error: %v", err)
 	}
 	if f.Loc == start {
-		t.Error("expected the factory to move toward its seller, but it held still")
+		t.Error("expected the factory to move toward its trade partner, but it held still")
 	}
 	if f.Loc.X <= start.X {
-		t.Errorf("expected the factory to move toward its seller at X=600, got %v", f.Loc)
+		t.Errorf("expected the factory to move toward its trade partner at X=600, got %v", f.Loc)
 	}
 }
 
@@ -291,5 +286,27 @@ func Test_Factory_TradeMemoryAndFlows(t *testing.T) {
 	got := f.StockMarginalUnitCost(0.5)
 	if got < 1.8332 || got > 1.8334 {
 		t.Fatalf("StockMarginalUnitCost = %v, want ~1.8333", got)
+	}
+}
+
+func Test_Factory_Move_climbsTowardTradePartners(t *testing.T) {
+	f := New("Plates", "Recipe_Plates_C", point.Point{X: 0, Y: 0}, 0,
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		production.Products{production.Production{Name: "IronPlate", Rate: 2}},
+		100)
+	// No trades: holds still.
+	if err := f.Move(); err != nil {
+		t.Fatalf("Move error: %v", err)
+	}
+	if f.Loc.X != 0 || f.Loc.Y != 0 {
+		t.Fatalf("tradeless factory moved to %v, want (0,0)", f.Loc)
+	}
+	// One partner far to the east: moves toward it (X increases).
+	f.RecordTrade(1, point.Point{X: 100000, Y: 0}, 5)
+	if err := f.Move(); err != nil {
+		t.Fatalf("Move error: %v", err)
+	}
+	if f.Loc.X <= 0 {
+		t.Fatalf("factory at %v, want X > 0 (moved toward partner)", f.Loc)
 	}
 }

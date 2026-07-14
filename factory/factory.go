@@ -215,12 +215,11 @@ func (f *Factory) ContractsIn() []*production.Contract {
 }
 
 func (f *Factory) Move() error {
-	if len(f.Purchases) == 0 && len(f.Sales) == 0 {
-		// No contracts means no transport-cost gradient to climb --
-		// transportCostsAt is 0 in every direction, so the tie-break
-		// below would otherwise always pick the same neighbor and the
-		// factory would march off the map forever while it waits for
-		// its first bid to fill.
+	if len(f.RecentTrades) == 0 {
+		// No trades means no transport-cost gradient to climb -- the
+		// tie-break below would otherwise always pick the same neighbor
+		// and the factory would march off the map forever while it
+		// waits for its first trade.
 		return nil
 	}
 
@@ -257,26 +256,18 @@ func (f *Factory) Move() error {
 
 var _ production.Producer = (*Factory)(nil)
 
+// transportCostsAt scores a location against the factory's remembered
+// trade partners, weighted by traded quantity.
 func (f *Factory) transportCostsAt(p point.Point) float64 {
 	c := 0.0
-	for _, sale := range f.Sales {
-		c += recipes.TransportCost(sale.Buyer.Location(), p)
-	}
-	for _, purchase := range f.Purchases {
-		c += recipes.TransportCost(p, purchase.Seller.Location())
+	for _, tr := range f.RecentTrades {
+		c += tr.Qty * recipes.UnitTransportCost(p, tr.Other)
 	}
 	return c
 }
 
 func (f *Factory) moveTo(loc point.Point) {
 	f.Loc = loc
-	for _, sale := range f.Sales {
-		sale.TransportCost = recipes.TransportCost(loc, sale.Buyer.Location())
-	}
-	for _, purchase := range f.Purchases {
-		purchase.TransportCost = recipes.TransportCost(purchase.Seller.Location(), loc)
-	}
-	return
 }
 
 // AskPriceFor returns the standing per-unit sale price for the named
