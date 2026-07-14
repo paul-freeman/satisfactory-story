@@ -25,6 +25,78 @@ func newTestStateWithProducers(rs recipes.Recipes, producers []production.Produc
 	}
 }
 
+// testRecipe creates a recipe fixture with exactly one input at Rate 1 and is Active.
+func testRecipe(t *testing.T) *recipes.Recipe {
+	return &recipes.Recipe{
+		ClassName:      "Recipe_Test_C",
+		DisplayName:    "Test Recipe",
+		Active:         true,
+		InputProducts:  production.Products{{Name: "Input", Rate: 1}},
+		OutputProducts: production.Products{{Name: "Output", Rate: 1}},
+	}
+}
+
+func Test_estimatedDeliveredCost_includesTransportAllowance(t *testing.T) {
+	s := newTestState()
+	// No ask, no trade history: pessimistic default + transport.
+	if got := s.estimatedDeliveredCost("Unknown"); got != unknownInputUnitCost+defaultTransportEstimate {
+		t.Fatalf("unknown = %v, want %v", got, unknownInputUnitCost+defaultTransportEstimate)
+	}
+	s.lastTrade["Traded"] = 3.0
+	if got := s.estimatedDeliveredCost("Traded"); got != 3.0+defaultTransportEstimate {
+		t.Fatalf("traded = %v, want %v", got, 3.0+defaultTransportEstimate)
+	}
+}
+
+func Test_spawnWeights_crowdingDiscount(t *testing.T) {
+	s := newTestState()
+	s.randSrc = rand.New(rand.NewSource(1))
+	// Two live factories already run Recipe_A_C; none run Recipe_B_C.
+	for i := 0; i < 2; i++ {
+		s.producers = append(s.producers, factory.New("A", "Recipe_A_C",
+			point.Point{X: i * 10, Y: 0}, 0,
+			production.Products{production.Production{Name: "In", Rate: 1}},
+			production.Products{production.Production{Name: "Out", Rate: 1}},
+			100))
+	}
+	crowd := s.recipeCrowding()
+	if crowd["Recipe_A_C"] != 2 || crowd["Recipe_B_C"] != 0 {
+		t.Fatalf("crowding = %v, want A:2 B:0", crowd)
+	}
+	// With identical expected profit, B's weight must be 3x A's:
+	// (1+p)/(1+2) vs (1+p)/(1+0).
+	wA := (baselineOpportunityWeight + 0) / float64(1+crowd["Recipe_A_C"])
+	wB := (baselineOpportunityWeight + 0) / float64(1+crowd["Recipe_B_C"])
+	if wB <= wA*2.9 {
+		t.Fatalf("crowding discount too weak: wA=%v wB=%v", wA, wB)
+	}
+}
+
+func Test_spawnNewProducer_seedCoversStockAndUpkeep(t *testing.T) {
+	s := newTestState()
+	s.randSrc = rand.New(rand.NewSource(1))
+	s.xmin, s.xmax, s.ymin, s.ymax = 0, 1000, 0, 1000
+	recipe := testRecipe(t) // helper below
+	s.recipes = append(s.recipes, recipe)
+
+	s.spawnNewProducer(testLogger())
+	var spawned *factory.Factory
+	for _, p := range s.producers {
+		if f, ok := p.(*factory.Factory); ok {
+			spawned = f
+		}
+	}
+	if spawned == nil {
+		t.Fatal("no factory spawned")
+	}
+	// One input at rate 1, no ask/history: delivered estimate = 10 + 2.
+	want := (unknownInputUnitCost+defaultTransportEstimate)*1*inputStockTargetTicks +
+		upkeepPerTick*seedCapitalBufferTicks
+	if got := spawned.Wallet.Cash(); got < want-1e-6 || got > want+1e-6 {
+		t.Fatalf("seed capital = %v, want %v", got, want)
+	}
+}
+
 func Test_spawnNewProducer_spawns_idle_without_sourcing(t *testing.T) {
 	// No Ore seller exists at all -- under the old economy this spawn
 	// was impossible. Under the order book the factory spawns idle and
@@ -50,8 +122,9 @@ func Test_spawnNewProducer_spawns_idle_without_sourcing(t *testing.T) {
 		t.Error("the factory should be idle -- there is nothing to source")
 	}
 	// Seed capital: no ask, no trade history -> pessimistic estimate.
-	// (unknownInputUnitCost*5 + upkeepPerTick) * seedCapitalBufferTicks
-	want := (unknownInputUnitCost*5 + upkeepPerTick) * seedCapitalBufferTicks
+	// New formula: (estimatedDeliveredCost * rate) * inputStockTargetTicks + upkeep * seedCapitalBufferTicks
+	want := (unknownInputUnitCost+defaultTransportEstimate)*5*inputStockTargetTicks +
+		upkeepPerTick*seedCapitalBufferTicks
 	if math.Abs(f.Wallet.Cash()-want) > 0.0001 {
 		t.Errorf("expected seed capital %f, got %f", want, f.Wallet.Cash())
 	}
@@ -90,8 +163,9 @@ func Test_spawnNewProducer_initializes_bids_at_best_ask(t *testing.T) {
 	if got := f.BidPriceFor("Ore"); got != 0.4 {
 		t.Errorf("bid should start at the best ask 0.4, got %f", got)
 	}
-	// Seed capital now uses the real ask price.
-	want := (0.4*5 + upkeepPerTick) * seedCapitalBufferTicks
+	// Seed capital now uses delivered estimate = ask + transport.
+	want := (0.4+defaultTransportEstimate)*5*inputStockTargetTicks +
+		upkeepPerTick*seedCapitalBufferTicks
 	if math.Abs(f.Wallet.Cash()-want) > 0.0001 {
 		t.Errorf("expected seed capital %f, got %f", want, f.Wallet.Cash())
 	}
@@ -248,14 +322,15 @@ func Test_expectedProfit_reads_the_book(t *testing.T) {
 	s := newTestStateWithProducers(recipes.Recipes{recipe}, []production.Producer{})
 
 	// No bids at all: revenue falls back to the floor price.
-	wantFloor := floorUnitPrice*5 - (unknownInputUnitCost*5 + upkeepPerTick)
+	// expectedProfit now uses estimatedDeliveredCost (add transport allowance).
+	wantFloor := floorUnitPrice*5 - ((unknownInputUnitCost+defaultTransportEstimate)*5 + upkeepPerTick)
 	if got := s.expectedProfit(recipe); math.Abs(got-wantFloor) > 0.0001 {
 		t.Errorf("expected floor-based profit %f, got %f", wantFloor, got)
 	}
 
 	// A real standing bid for the output raises expected profit.
 	s.book.PostBid(buyer, "Ingot", 5, 8.0)
-	want := 8.0*5 - (unknownInputUnitCost*5 + upkeepPerTick)
+	want := 8.0*5 - ((unknownInputUnitCost+defaultTransportEstimate)*5 + upkeepPerTick)
 	if got := s.expectedProfit(recipe); math.Abs(got-want) > 0.0001 {
 		t.Errorf("expected bid-based profit %f, got %f", want, got)
 	}
@@ -263,7 +338,7 @@ func Test_expectedProfit_reads_the_book(t *testing.T) {
 	// A cheap ask for the input raises it further.
 	seller := &resources.Resource{Production: production.Production{Name: "Ore", Rate: 100}}
 	s.book.PostAsk(seller, "Ore", 100, 0.5)
-	want = 8.0*5 - (0.5*5 + upkeepPerTick)
+	want = 8.0*5 - ((0.5+defaultTransportEstimate)*5 + upkeepPerTick)
 	if got := s.expectedProfit(recipe); math.Abs(got-want) > 0.0001 {
 		t.Errorf("expected ask-based profit %f, got %f", want, got)
 	}

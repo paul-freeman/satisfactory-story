@@ -10,10 +10,16 @@ import (
 )
 
 // seedCapitalBufferTicks funds a new factory with this many ticks' worth
-// of estimated input cost plus upkeep, representing the up-front cost of
-// building it. It has to cover a realistic idle wait: the factory spends
-// it while its input bids sit in the book waiting for supply to appear.
+// of upkeep (only). Stock cost is budgeted separately via inputStockTargetTicks.
+// It has to cover a realistic idle wait: the factory spends it while its
+// input bids sit in the book waiting for supply to appear.
 const seedCapitalBufferTicks = 300.0
+
+// defaultTransportEstimate is the flat per-unit freight allowance used
+// in every cost estimate. Precision only needs to prevent the verified
+// transport-blindness failure (estimates of ~0.01 against delivered
+// costs of ~1-2), not price real freight.
+const defaultTransportEstimate = 2.0
 
 // spawnProbabilityPerTick is the chance, per tick, that a new producer
 // is attempted at all.
@@ -50,10 +56,15 @@ func (s *State) spawnNewProducer(l *slog.Logger) {
 		return
 	}
 
+	// Crowding discount: a recipe's opportunity is shared by every live
+	// factory already running it, so saturated niches stop attracting
+	// entrants and the draw naturally walks to the next unserved tier.
+	crowd := s.recipeCrowding()
 	weights := make([]float64, len(activeRecipes))
 	total := 0.0
 	for i, recipe := range activeRecipes {
-		weights[i] = baselineOpportunityWeight + math.Max(0, s.expectedProfit(recipe))
+		weights[i] = (baselineOpportunityWeight + math.Max(0, s.expectedProfit(recipe))) /
+			float64(1+crowd[recipe.ID()])
 		total += weights[i]
 	}
 
@@ -68,11 +79,13 @@ func (s *State) spawnNewProducer(l *slog.Logger) {
 		}
 	}
 
-	inputCost := 0.0
+	// Seed capital: enough to fill the input-stock target at estimated
+	// delivered prices, plus an upkeep runway.
+	stockCost := 0.0
 	for _, input := range chosenRecipe.Inputs() {
-		inputCost += s.estimatedUnitCost(input.Name) * input.Rate
+		stockCost += s.estimatedDeliveredCost(input.Name) * input.Rate
 	}
-	seedCapital := (inputCost + upkeepPerTick) * seedCapitalBufferTicks
+	seedCapital := stockCost*inputStockTargetTicks + upkeepPerTick*seedCapitalBufferTicks
 
 	newFactory := factory.New(chosenRecipe.Name(), chosenRecipe.ID(), s.spawnLocation(chosenRecipe), s.tick,
 		chosenRecipe.Inputs(), chosenRecipe.Outputs(), seedCapital)
@@ -102,7 +115,7 @@ func (s *State) expectedProfit(r *recipes.Recipe) float64 {
 	}
 	cost := upkeepPerTick
 	for _, input := range r.Inputs() {
-		cost += s.estimatedUnitCost(input.Name) * input.Rate
+		cost += s.estimatedDeliveredCost(input.Name) * input.Rate
 	}
 	return revenue - cost
 }
@@ -118,6 +131,25 @@ func (s *State) estimatedUnitCost(product string) float64 {
 		return price
 	}
 	return unknownInputUnitCost
+}
+
+// estimatedDeliveredCost is the best current estimate of what one unit
+// of product costs to buy AND ship here.
+func (s *State) estimatedDeliveredCost(product string) float64 {
+	return s.estimatedUnitCost(product) + defaultTransportEstimate
+}
+
+// recipeCrowding counts live factories per recipe class. Reading the
+// producer population is public market state (see the spec's purity
+// line) -- it is not the recipe tree.
+func (s *State) recipeCrowding() map[string]int {
+	crowd := make(map[string]int)
+	for _, p := range s.producers {
+		if f, ok := p.(*factory.Factory); ok {
+			crowd[f.RecipeClass]++
+		}
+	}
+	return crowd
 }
 
 // spawnOffsetFromInput keeps a freshly-spawned factory from landing
