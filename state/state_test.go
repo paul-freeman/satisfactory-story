@@ -97,7 +97,7 @@ func Test_state_Tick(t *testing.T) {
 		for _, producer := range testState.producers {
 			f, ok := producer.(*factory.Factory)
 			if ok {
-				l.Info(f.String(), slog.Float64("profit", f.Profit()))
+				l.Info(f.String(), slog.Float64("cash", f.Cash()))
 			}
 		}
 	})
@@ -285,7 +285,7 @@ func Test_toHTTP_wire_additions(t *testing.T) {
 
 	found := false
 	for _, f := range wire.Factories {
-		if f.Recipe == "Test Recipe (0)" {
+		if f.Recipe == "Test Recipe (idle)" || f.Recipe == "Test Recipe" {
 			found = true
 			assert.InDelta(t, 500-123.45, f.Cash, 0.0001, "factory cash should reflect its wallet balance")
 		}
@@ -295,4 +295,37 @@ func Test_toHTTP_wire_additions(t *testing.T) {
 	assert.GreaterOrEqual(t, len(wire.Shortages), 2, "expected at least the two recorded shortages")
 	assert.Equal(t, "Widget", wire.Shortages[0].Product, "shortages should be sorted by amount descending")
 	assert.Equal(t, 5.0, wire.Shortages[0].Price, "shortage should carry the best bid price")
+}
+
+func Test_toHTTP_ledgerTransports(t *testing.T) {
+	s := newTestState()
+	s.tick = 100
+	r := &resources.Resource{
+		Production: production.Production{Name: "OreIron", Rate: 1},
+		Loc:        point.Point{X: 0, Y: 0},
+		Stock:      5,
+	}
+	f := factory.New("Smelter", "Recipe_IngotIron_C", point.Point{X: 500, Y: 0}, 0,
+		production.Products{production.Production{Name: "OreIron", Rate: 1}},
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		100)
+	s.producers = []production.Producer{r, f}
+	s.ledger.record(90, r, f, "OreIron", 30, 1.0)
+	s.ledger.record(95, r, f, "OreIron", 20, 1.0)
+
+	wire := s.toHTTP()
+	if len(wire.Transports) != 1 {
+		t.Fatalf("transports = %d, want 1 aggregated edge", len(wire.Transports))
+	}
+	tr := wire.Transports[0]
+	if tr.Origin.X != 0 || tr.Destination.X != 500 {
+		t.Fatalf("transport endpoints = %+v, want origin X 0 -> dest X 500", tr)
+	}
+	wantRate := 50.0 / 100.0 // qty over window (tick < tradeMemoryTicks)
+	if tr.Rate < wantRate-1e-9 || tr.Rate > wantRate+1e-9 {
+		t.Fatalf("transport rate = %v, want %v", tr.Rate, wantRate)
+	}
+	if len(wire.Resources) != 1 || !wire.Resources[0].Active {
+		t.Fatal("resource with a recent sale should be Active")
+	}
 }

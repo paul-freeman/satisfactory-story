@@ -335,138 +335,79 @@ func (s *State) shortagesForWire() []statehttp.Shortage {
 func (s *State) toHTTP() statehttp.State {
 	resources := make([]statehttp.Resource, 0)
 	factories := make([]statehttp.Factory, 0)
-	transports := make([]statehttp.Transport, 0)
 	sinks := make([]statehttp.Sink, 0)
+
+	recentSellers := s.ledger.recentSellers()
+
 	for _, p := range s.producers {
 		switch producer := p.(type) {
 		case *storyresources.Resource:
-			active := true
-
-			newSales := make([]*production.Contract, 0)
-			for _, sale := range producer.Sales {
-				if !sale.Cancelled {
-					newSales = append(newSales, sale)
-				}
-			}
-			producer.Sales = newSales
-			if len(producer.Sales) == 0 {
-				active = false
-			}
-
-			// List resource products
-			products := make([]string, 0)
-			for _, product := range producer.Products() {
-				products = append(products, product.Name)
-			}
-			if len(products) != 1 {
-				panic(fmt.Sprintf("resource %s has %d products", producer.PrettyPrint(), len(products)))
-			}
-
-			// Append factory with list of products
-			profitability := producer.Profitability()
-			if math.IsNaN(profitability) || math.IsInf(profitability, 0) {
-				profitability = 0
-			}
-
-			numContracts := len(producer.ContractsIn())
-
-			// Create the resource object for sending.
-			resource := statehttp.Resource{
+			resources = append(resources, statehttp.Resource{
 				Location: statehttp.Location{
 					X: producer.Location().X,
 					Y: producer.Location().Y,
 				},
-				Recipe:        producer.Production.Name + fmt.Sprintf(" (%d)", numContracts),
-				Product:       products[0],
-				Profitability: profitability,
-				Active:        active,
-			}
-
-			resources = append(resources, resource)
+				Recipe:        producer.Production.Name,
+				Product:       producer.Production.Name,
+				Profitability: 0,
+				Active:        recentSellers[p],
+			})
 		case *factory.Factory:
-			// List producer products
 			products := make([]string, 0)
 			for _, product := range producer.Products() {
 				products = append(products, product.Name)
 			}
-
-			// Append factory with list of products
-			profitability := producer.Profitability()
+			profitability := producer.AvgRevenue / (producer.AvgInputSpend + upkeepPerTick)
 			if math.IsNaN(profitability) || math.IsInf(profitability, 0) {
 				profitability = 0
 			}
-
-			numContracts := len(producer.ContractsIn())
-
-			// Create the factory object for sending.
-			factory := statehttp.Factory{
+			label := producer.Name
+			if !producer.ProducedLastTick {
+				label += " (idle)"
+			}
+			factories = append(factories, statehttp.Factory{
 				Location: statehttp.Location{
 					X: producer.Location().X,
 					Y: producer.Location().Y,
 				},
-				Recipe:        producer.Name + fmt.Sprintf(" (%d)", numContracts),
+				Recipe:        label,
 				Products:      products,
 				Profitability: profitability,
 				Cash:          producer.Cash(),
-			}
-			factories = append(factories, factory)
-
-			// List incoming transports
-			for _, contract := range producer.ContractsIn() {
-				rate := contract.Order.Rate
-				if math.IsNaN(rate) {
-					rate = 0
-				}
-				transport := statehttp.Transport{
-					Origin: statehttp.Location{
-						X: contract.Seller.Location().X,
-						Y: contract.Seller.Location().Y,
-					},
-					Destination: statehttp.Location{
-						X: contract.Buyer.Location().X,
-						Y: contract.Buyer.Location().Y,
-					},
-					Rate: rate,
-				}
-				transports = append(transports, transport)
-			}
+			})
 		case *sink.Sink:
-			profitability := producer.Profitability()
-
-			label := producer.Name + fmt.Sprintf(" Sink (%.2f)", profitability)
-			if profitability == math.MaxFloat64 {
-				label = producer.Name + " Sink (max)"
-			}
-
-			sink := statehttp.Sink{
+			sinks = append(sinks, statehttp.Sink{
 				Location: statehttp.Location{
 					X: producer.Location().X,
 					Y: producer.Location().Y,
 				},
-				Label: label,
-			}
-			sinks = append(sinks, sink)
-
-			// List incoming transports
-			for _, contract := range producer.ContractsIn() {
-				rate := contract.Order.Rate
-				if math.IsNaN(rate) {
-					rate = 0
-				}
-				transport := statehttp.Transport{
-					Origin: statehttp.Location{
-						X: contract.Seller.Location().X,
-						Y: contract.Seller.Location().Y,
-					},
-					Destination: statehttp.Location{
-						X: contract.Buyer.Location().X,
-						Y: contract.Buyer.Location().Y,
-					},
-					Rate: rate,
-				}
-				transports = append(transports, transport)
-			}
+				Label: fmt.Sprintf("%s Sink (%.1f delivered)", producer.Name, producer.TotalDelivered()),
+			})
 		}
+	}
+
+	// Transport links: aggregated recent trades. Rate is volume over the
+	// visible window so long-standing routes read stronger than blips.
+	window := s.tick
+	if window > tradeMemoryTicks {
+		window = tradeMemoryTicks
+	}
+	if window < 1 {
+		window = 1
+	}
+	transports := make([]statehttp.Transport, 0)
+	for _, edge := range s.ledger.edges() {
+		transports = append(transports, statehttp.Transport{
+			Origin: statehttp.Location{
+				X: edge.seller.Location().X,
+				Y: edge.seller.Location().Y,
+			},
+			Destination: statehttp.Location{
+				X: edge.buyer.Location().X,
+				Y: edge.buyer.Location().Y,
+			},
+			Rate: edge.qty / float64(window),
+		})
 	}
 
 	bounds := statehttp.Bounds{
