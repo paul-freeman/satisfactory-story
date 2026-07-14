@@ -174,3 +174,20 @@ func TransportCost(origin point.Point, destination point.Point) float64 {
 	}
 	return 1 + d/10000.0
 }
+
+// Per-unit freight pricing for the inventory economy. Per-unit (not
+// per-contract-per-tick) so low-rate products are not charged 30x the
+// effective freight of high-rate ones.
+const transportFixedPerUnit = 0.1
+const transportPerDistance = 1.0 / 10000.0
+
+// UnitTransportCost returns the cost of moving ONE unit of product from
+// origin to destination. Distances <= 1 keep the prohibitive collision
+// guard from TransportCost: producers must not stack on one location.
+func UnitTransportCost(origin point.Point, destination point.Point) float64 {
+	d := origin.Distance(destination)
+	if d <= 1 {
+		return 1e12
+	}
+	return transportFixedPerUnit + d*transportPerDistance
+}
