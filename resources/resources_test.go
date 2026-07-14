@@ -97,3 +97,20 @@ func Test_Resource_ask_price_defaults_and_sets(t *testing.T) {
 		t.Errorf("asking about a foreign product should return 0, got %f", got)
 	}
 }
+
+func Test_Resource_ProduceTick(t *testing.T) {
+	r := &Resource{
+		Production: production.Production{Name: "OreIron", Rate: 2},
+		Loc:        point.Point{X: 0, Y: 0},
+	}
+	r.ProduceTick(3) // cap = 6 units
+	if r.Stock != 2 {
+		t.Fatalf("stock after 1 tick = %v, want 2", r.Stock)
+	}
+	r.ProduceTick(3)
+	r.ProduceTick(3)
+	r.ProduceTick(3) // would be 8, clamps at cap 6
+	if r.Stock != 6 {
+		t.Fatalf("stock at cap = %v, want 6", r.Stock)
+	}
+}

@@ -37,6 +37,9 @@ type Resource struct {
 	// product, adjusted by the market loop. Zero means "not yet quoted";
 	// it defaults on first use.
 	AskPrice float64
+	// Stock is the units of extracted product on hand, bounded by the
+	// production step's cap. Asks are backed by this.
+	Stock float64
 }
 
 func New() ([]*Resource, error) {
@@ -206,6 +209,13 @@ func (r *Resource) SetAskPrice(name string, price float64) {
 		return
 	}
 	r.AskPrice = price
+}
+
+// ProduceTick extracts one tick's worth of product into stock, clamped
+// at outputCapTicks worth of production.
+func (r *Resource) ProduceTick(outputCapTicks float64) {
+	cap := r.Production.Rate * outputCapTicks
+	r.Stock = math.Min(cap, r.Stock+r.Production.Rate)
 }
 
 var _ production.Producer = (*Resource)(nil)

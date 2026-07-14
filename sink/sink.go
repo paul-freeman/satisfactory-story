@@ -18,6 +18,9 @@ type Sink struct {
 	// every product it wants. Goal sinks bid high -- their demand is the
 	// engine of the whole economy.
 	BidUnitPrice float64
+	// Delivered counts units actually received, by product. The
+	// space-elevator milestone is TotalDelivered() > 0 on a goal sink.
+	Delivered production.Inventory
 }
 
 func New(
@@ -32,6 +35,7 @@ func New(
 		Input:        input,
 		Purchases:    make([]*production.Contract, 0),
 		BidUnitPrice: bidUnitPrice,
+		Delivered:    make(production.Inventory),
 	}
 }
 
@@ -130,6 +134,20 @@ func (f *Sink) SignAsSeller(contract *production.Contract) error {
 // ContractsIn implements production.Producer.
 func (f *Sink) ContractsIn() []*production.Contract {
 	return f.Purchases
+}
+
+// RecordDelivery counts qty units of the named product as received.
+func (f *Sink) RecordDelivery(name string, qty float64) {
+	f.Delivered.Add(name, qty)
+}
+
+// TotalDelivered is the total units ever received across all products.
+func (f *Sink) TotalDelivered() float64 {
+	total := 0.0
+	for _, qty := range f.Delivered {
+		total += qty
+	}
+	return total
 }
 
 func (f *Sink) Move() error {
