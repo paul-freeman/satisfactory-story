@@ -63,6 +63,7 @@ func Test_spawnNewProducer_initializes_bids_at_best_ask(t *testing.T) {
 		Loc:        point.Point{X: 500, Y: 500},
 	}
 	ore.SetAskPrice("Ore", 0.4)
+	ore.Stock = 10 // stock-backed ask
 	rs := recipes.Recipes{
 		{
 			ClassName:      "Recipe_Smelt_C",
@@ -101,6 +102,7 @@ func Test_spawnNewProducer_spawns_near_a_sourceable_input(t *testing.T) {
 		Production: production.Production{Name: "Ore", Rate: 100},
 		Loc:        point.Point{X: 700, Y: 300},
 	}
+	ore.Stock = 10 // stock-backed ask
 	rs := recipes.Recipes{
 		{
 			ClassName:      "Recipe_Smelt_C",
@@ -141,10 +143,12 @@ func Test_spawnNewProducer_spawns_at_centroid_of_multiple_sourceable_inputs(t *t
 		Production: production.Production{Name: "Ore", Rate: 100},
 		Loc:        point.Point{X: 400, Y: 400},
 	}
+	ore.Stock = 10 // stock-backed ask
 	coal := &resources.Resource{
 		Production: production.Production{Name: "Coal", Rate: 100},
 		Loc:        point.Point{X: 600, Y: 600},
 	}
+	coal.Stock = 10 // stock-backed ask
 	rs := recipes.Recipes{
 		{
 			ClassName:   "Recipe_Steel_C",

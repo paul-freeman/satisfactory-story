@@ -17,6 +17,7 @@ func Test_adjustPrices_ask_dynamics(t *testing.T) {
 			Production: production.Production{Name: "Ore", Rate: 100},
 			Loc:        point.Point{X: 500, Y: 500},
 		}
+		ore.Stock = 5 // stock-backed ask
 		s := newTestStateWithProducers(recipes.Recipes{}, []production.Producer{ore})
 		s.publishOrders(testLogger()) // ask goes unmatched -- nobody bids
 
@@ -29,6 +30,7 @@ func Test_adjustPrices_ask_dynamics(t *testing.T) {
 
 		// Lowering never crosses the floor.
 		ore.SetAskPrice("Ore", production.MinUnitPrice)
+		ore.Stock = 5 // replenish stock for next publishOrders
 		s.publishOrders(testLogger())
 		s.adjustPrices(testLogger())
 		if got := ore.AskPriceFor("Ore"); got < production.MinUnitPrice {
@@ -41,6 +43,7 @@ func Test_adjustPrices_ask_dynamics(t *testing.T) {
 			Production: production.Production{Name: "Ore", Rate: 10},
 			Loc:        point.Point{X: 500, Y: 500},
 		}
+		ore.Stock = 10 // stock-backed ask to be consumed by buyer
 		buyer := factory.New("Smelt", "Recipe_Smelt_C", point.Point{X: 501, Y: 501}, 0,
 			production.Products{{Name: "Ore", Rate: 10}},
 			production.Products{{Name: "Ingot", Rate: 5}}, 1000)
@@ -69,6 +72,7 @@ func Test_adjustPrices_ask_dynamics(t *testing.T) {
 		})
 		// marginal cost = (12 + upkeep) / 4 = 3.125 > current default ask 1.0
 		f.SetAskPrice("Ingot", 1.0)
+		f.OutputStock.Add("Ingot", 5) // stock-backed ask
 
 		s := newTestStateWithProducers(recipes.Recipes{}, []production.Producer{f})
 		s.publishOrders(testLogger()) // producing, unsold ask
