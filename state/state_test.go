@@ -285,7 +285,7 @@ func Test_toHTTP_wire_additions(t *testing.T) {
 
 	found := false
 	for _, f := range wire.Factories {
-		if f.Recipe == "Test Recipe (idle)" || f.Recipe == "Test Recipe" {
+		if f.Recipe == "Test Recipe (idle)" {
 			found = true
 			assert.InDelta(t, 500-123.45, f.Cash, 0.0001, "factory cash should reflect its wallet balance")
 		}
