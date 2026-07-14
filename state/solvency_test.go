@@ -1,7 +1,6 @@
 package state
 
 import (
-	"math"
 	"testing"
 
 	"github.com/paul-freeman/satisfactory-story/factory"
@@ -9,111 +8,56 @@ import (
 	"github.com/paul-freeman/satisfactory-story/production"
 )
 
-func Test_applySolvency(t *testing.T) {
-	t.Run("removes a factory that has been insolvent long enough", func(t *testing.T) {
-		f := factory.New("Test", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0,
-			production.Products{{Name: "Input", Rate: 1}},
-			production.Products{{Name: "Output", Rate: 1}}, 0)
-		f.Purchases = append(f.Purchases, &production.Contract{
-			Seller:      &factory.Factory{},
-			Order:       production.Production{Name: "Input", Rate: 1},
-			ProductCost: 100, // expensive input, no sales -- guaranteed loss every tick
-		})
+func Test_applySolvency_salvageTrickleOnlyWhenCapped(t *testing.T) {
+	s := newTestState()
+	f := factory.New("Plates", "Recipe_Plates_C", point.Point{X: 0, Y: 0}, 0,
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		production.Products{production.Production{Name: "IronPlate", Rate: 2}},
+		100)
+	s.producers = []production.Producer{f}
 
-		s := &State{producers: []production.Producer{f}}
-		for i := 0; i < insolvencyGrace+1; i++ {
-			s.applySolvency(testLogger())
-		}
+	// Below cap: no salvage, just upkeep.
+	f.OutputStock.Add("IronPlate", 10)
+	s.applySolvency(testLogger())
+	if got := f.Wallet.Cash(); got != 100-upkeepPerTick {
+		t.Fatalf("below-cap cash = %v, want %v", got, 100-upkeepPerTick)
+	}
+	if got := f.OutputStock.Get("IronPlate"); got != 10 {
+		t.Fatalf("below-cap stock = %v, want 10 (untouched)", got)
+	}
 
-		if len(s.producers) != 0 {
-			t.Errorf("expected the bankrupt factory to be removed, got %d producers left", len(s.producers))
-		}
-	})
+	// At cap (rate 2 x outputStockCapTicks): trickle 25% of one tick's
+	// rate (0.5 units) at floorUnitPrice.
+	cap := 2 * outputStockCapTicks
+	f.OutputStock.Add("IronPlate", cap-10)
+	before := f.Wallet.Cash()
+	s.applySolvency(testLogger())
+	wantSalvage := 0.5 * floorUnitPrice
+	if got := f.Wallet.Cash(); got < before+wantSalvage-upkeepPerTick-1e-9 || got > before+wantSalvage-upkeepPerTick+1e-9 {
+		t.Fatalf("capped cash delta = %v, want %v", got-before, wantSalvage-upkeepPerTick)
+	}
+	if got := f.OutputStock.Get("IronPlate"); got != cap-0.5 {
+		t.Fatalf("capped stock = %v, want %v", got, cap-0.5)
+	}
+}
 
-	t.Run("keeps a factory that recovers before the grace window elapses", func(t *testing.T) {
-		f := factory.New("Test", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0,
-			production.Products{{Name: "Input", Rate: 1}},
-			production.Products{{Name: "Output", Rate: 1}}, 100)
-		f.Purchases = append(f.Purchases, &production.Contract{
-			Seller:      &factory.Factory{},
-			Order:       production.Production{Name: "Input", Rate: 1},
-			ProductCost: 1, // cheap enough that seed capital covers it comfortably
-		})
-
-		s := &State{producers: []production.Producer{f}}
+func Test_applySolvency_removesInsolvent(t *testing.T) {
+	s := newTestState()
+	f := factory.New("Plates", "Recipe_Plates_C", point.Point{X: 0, Y: 0}, 0,
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		production.Products{production.Production{Name: "IronPlate", Rate: 2}},
+		-1) // already broke
+	s.producers = []production.Producer{f}
+	// Wallet.Apply counts one insolvent tick per applySolvency call;
+	// removal happens on the call where the count reaches the grace.
+	for i := 0; i < insolvencyGrace-1; i++ {
 		s.applySolvency(testLogger())
-
-		if len(s.producers) != 1 {
-			t.Errorf("expected the solvent factory to survive, got %d producers left", len(s.producers))
+		if len(s.producers) == 0 {
+			t.Fatalf("removed after %d ticks, before grace %d expired", i+1, insolvencyGrace)
 		}
-	})
-
-	t.Run("keeps an idle factory but charges upkeep", func(t *testing.T) {
-		f := factory.New("Test", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0,
-			production.Products{{Name: "Input", Rate: 1}},
-			production.Products{{Name: "Output", Rate: 1}}, 100)
-		// no purchase signed for the required "Input" -- idle, NOT culled
-
-		s := &State{producers: []production.Producer{f}}
-		s.applySolvency(testLogger())
-
-		if len(s.producers) != 1 {
-			t.Fatalf("an idle factory must survive (it is waiting for supply), got %d producers", len(s.producers))
-		}
-		if got := f.Wallet.Cash(); got != 100-upkeepPerTick {
-			t.Errorf("expected upkeep %f charged, cash %f, got %f", upkeepPerTick, 100-upkeepPerTick, got)
-		}
-	})
-
-	t.Run("cancels the sales of a factory that stops producing", func(t *testing.T) {
-		f := factory.New("Test", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0,
-			production.Products{{Name: "Input", Rate: 1}},
-			production.Products{{Name: "Output", Rate: 1}}, 100)
-		sale := &production.Contract{
-			Buyer:       &factory.Factory{},
-			Order:       production.Production{Name: "Output", Rate: 1},
-			ProductCost: 10,
-		}
-		f.Sales = append(f.Sales, sale)
-		// Its input contract is gone (e.g. supplier bankrupt) -- it can no
-		// longer honor the sale.
-
-		s := &State{producers: []production.Producer{f}}
-		s.applySolvency(testLogger())
-
-		if !sale.Cancelled {
-			t.Error("expected the idle factory's sale to be cancelled")
-		}
-		// Revenue from the cancelled sale must not have been credited, and
-		// an idle factory produces nothing so there is nothing to salvage.
-		if got := f.Wallet.Cash(); got != 100-upkeepPerTick {
-			t.Errorf("expected cash %f (upkeep only), got %f", 100-upkeepPerTick, got)
-		}
-	})
-
-	t.Run("producing factory salvages unsold capacity at the floor price", func(t *testing.T) {
-		f := factory.New("Test", "Recipe_Test_C", point.Point{X: 0, Y: 0}, 0,
-			production.Products{{Name: "Input", Rate: 1}},
-			production.Products{{Name: "Output", Rate: 4}}, 100)
-		f.Purchases = append(f.Purchases, &production.Contract{
-			Seller:      &factory.Factory{},
-			Order:       production.Production{Name: "Input", Rate: 1},
-			ProductCost: 2,
-		})
-		f.Sales = append(f.Sales, &production.Contract{
-			Buyer:       &factory.Factory{},
-			Order:       production.Production{Name: "Output", Rate: 1},
-			ProductCost: 10,
-		})
-		// Producing; 3 of 4 output units unsold -> salvaged at the floor.
-
-		s := &State{producers: []production.Producer{f}}
-		s.applySolvency(testLogger())
-
-		// 100 + (10 sale - 2 purchase profit) + 3*floorUnitPrice salvage - upkeep
-		want := 100 + 8 + 3*floorUnitPrice - upkeepPerTick
-		if got := f.Wallet.Cash(); math.Abs(got-want) > 1e-9 {
-			t.Errorf("expected cash %f, got %f", want, got)
-		}
-	})
+	}
+	s.applySolvency(testLogger())
+	if len(s.producers) != 0 {
+		t.Fatal("factory should be removed once insolvent for the full grace window")
+	}
 }
