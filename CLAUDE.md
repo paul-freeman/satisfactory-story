@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-An agent-based economic simulation of a [Satisfactory](https://satisfactorygame.com) factory network. A Go backend simulates producers (resource nodes and factories) that source ingredients, sign contracts, and relocate to minimize transport cost. A React + TypeScript + D3 single-page app visualizes the world on a tiled map and drives the simulation over HTTP.
+An agent-based economic simulation of a [Satisfactory](https://satisfactorygame.com) factory network. A Go backend simulates producers (resource nodes and factories) that hold real stock, trade it spot on an order book, and relocate to minimize transport cost. A React + TypeScript + D3 single-page app visualizes the world on a tiled map and drives the simulation over HTTP.
 
 ## Commands
 
@@ -31,20 +31,28 @@ Run the backend and `npm run dev` together. In dev, Vite proxies `/state`, `/tic
 
 ### Simulation core (`state/state.go`)
 
-`State` owns the whole world: `producers`, `recipes`, a `market` (cheapest known price per product), `sinks`, RNG seed, tick counter, and world bounds. It is guarded by a `sync.Mutex`; `Tick`, `Run`, `Stop`, and `Reset` all lock.
+`State` owns the whole world: `producers`, `recipes`, a `market.Book` (the live order book), a trade `ledger`, `sinks`, RNG seed, tick counter, and world bounds. It is guarded by a `sync.Mutex`; `Tick`, `Run`, `Stop`, and `Reset` all lock.
 
-Each `Tick` runs the full mechanism pipeline: `publishOrders` rebuilds the order book (`market.Book`) from live producer state (unsold capacity → asks, unmet inputs → bids, sinks → standing bids); `matchOrders` crosses it into `production.Contract`s; `moveProducers` hill-climbs on transport cost; `spawnNewProducer` (probability-gated) picks a recipe by expected profit against the book and spawns it *idle* — no sourcing at spawn; `renegotiateContracts` (probability-gated) re-shops existing contracts against residual asks; `applySolvency` charges upkeep, credits salvage (unsold producing capacity earns `floorUnitPrice` per unit — the AWESOME-sink buyer of last resort), cancels sales of non-producing factories, and removes the persistently insolvent; `adjustPrices` lets sellers/buyers react locally (unsold asks decay toward marginal cost, unfilled bids escalate within an affordability cap). Demand cascades backward through recipe tiers as escalating bids — see `docs/superpowers/specs/2026-07-11-order-book-market-design.md`.
+This is a **discrete-unit stock economy**, not a flow-contract one — see `docs/superpowers/specs/2026-07-12-inventory-economy-design.md` for the full design and the diagnosis that motivated replacing contracts with stock. Every resource and factory holds real inventory (`production.Inventory`, a `map[string]float64`); goods produced now sit in stock and stay buyable far into the future, instead of only existing transiently while a contract is live. Each `Tick` runs the full mechanism pipeline, in this order:
+
+1. `produceGoods` runs one tick of physical production for every resource and factory (`ProduceTick`), consuming `InputStock` into `OutputStock`, before the market runs so fresh goods are sellable this same tick.
+2. `publishOrders` rebuilds the order book (`market.Book`) from live stock every tick — the book is never carried over: unsold `OutputStock` becomes asks, unmet input "hunger" (`Hunger`, the gap to `inputStockTargetTicks`) becomes bids, sinks post standing bids for their goal product.
+3. `matchOrders` crosses the book (`market.Book.MatchAll`) and `executeTrade` (`state/orders.go`) makes each match a real **spot trade**: quantity is re-clamped against live seller stock and the buyer's wallet (a hard budget — a buyer can never overdraw), units and money move immediately, and `s.ledger.record` logs it. There are no contracts and nothing to renegotiate; every trade is one-shot.
+4. `moveProducers` hill-climbs factories on transport cost using recent trade locations.
+5. `spawnNewProducer` (probability-gated by `spawnProbabilityPerTick`) picks a recipe by expected profit against the book (discounted by how crowded that recipe already is) and spawns it *idle*, near its currently-sourceable inputs, with seed capital — no sourcing happens at spawn; `publishOrders` posts its bids starting next tick.
+6. `applySolvency` charges upkeep, credits salvage on output buffers that are full and unsold (production continues at a trickle, feeding the on-site AWESOME sink at `floorUnitPrice` — back-pressure that still signals no-demand upstream), and removes factories insolvent for `insolvencyGrace` ticks running.
+7. `adjustPrices` lets sellers/buyers react locally to this tick's fill outcome: unsold asks decay toward marginal cost, sold-out asks rise; unfilled bids escalate (uncapped — the trade-time budget clamp, not a price ceiling, is what keeps speculative bidding harmless at the point of trade). Demand cascades backward through recipe tiers this way, one price signal at a time, with no global graph traversal.
 
 `Run` launches a goroutine that ticks continuously until the cancellation context fires; `Stop` cancels it. The single cancel func is tracked via `setCancellationFunc`, which warns on double-set/double-clear.
 
-### Producers and contracts
+### Producers and stock
 
-`production.Producer` (`production/products.go`) is the central interface — anything that has a location, products, profit/profitability, capacity, and can sign contracts. There are three concrete implementations:
-- `resources.Resource` — a fixed ore/liquid node (from `Resource.json`), only sells.
-- `factory.Factory` — a recipe instance; both buys inputs and sells outputs, and is the only `MoveableProducer` (implements `Move`/`Remove`).
-- `sink.Sink` — a fixed demand point (e.g. `SpaceElevatorPart_1`), only buys.
+`production.Producer` (`production/products.go`) is the central interface — anything that has a location, products, profit/profitability, capacity, and can trade. There are three concrete implementations:
+- `resources.Resource` — a fixed ore/liquid node (from `Resource.json`); extracts into its own `Stock` every tick, only sells.
+- `factory.Factory` — a recipe instance; holds both `InputStock` and `OutputStock`, buys inputs and sells outputs, and is the only `MoveableProducer` (implements `Move`/`Remove`).
+- `sink.Sink` — a fixed demand point (e.g. `SpaceElevatorPart_1`); only buys, and tracks `TotalDelivered()` per product.
 
-Trade happens through `production.Contract`, a pointer shared by buyer and seller. Either side may `Cancel()`, so contracts must be checked for cancellation regularly (cancelled contracts are the primary signal for culling factories). `State.signContract` (`state/orders.go`) turns a matched order-book `market.Match` into a contract: it re-checks capacity, requires both `SignAsSeller` and `SignAsBuyer` to succeed, and records the traded unit price — the trade price itself is determined by matching (the ask's unit price), not computed at signing time.
+There are **no contracts**: a trade is a single spot exchange, cleared and settled in the same tick it matches (`state/orders.go`'s `executeTrade`), with nothing left to cancel or renegotiate afterward. The only state that persists between ticks besides stock itself is each producer's standing ask/bid prices (`AskPrices`/`BidPrices` on `factory.Factory`) and the rolling trade `ledger` (`state/trades.go`), which the HTTP layer uses to derive `Transport` links and "active" flags for the frontend.
 
 ### Recipes and data ingestion
 
@@ -58,7 +66,7 @@ The FactoryGame JSON encodes products as parenthesized strings, so `production.P
 
 `http.go` defines the `Server` interface the core satisfies, the wire types (`State`, `Resource`, `Factory`, `Sink`, `Transport`, `Recipe`), and the handlers. Endpoints: `/state`, `/tick`, `/run`, `/stop`, `/reset`, `/recipes`, `/recipe/{name}/{0|1}`. `/` serves the built frontend from `frontend/dist` (`http.FileServer(http.Dir("frontend/dist"))`).
 
-`State.MarshalJSON` → `toHTTP` is the translation layer from the rich internal model to these flat wire types; it also prunes cancelled sales and derives per-contract `Transport` links. The wire types are intentionally lossy (e.g. only the first input/output is sent for a recipe).
+`State.MarshalJSON` → `toHTTP` is the translation layer from the rich internal model to these flat wire types; it derives `Transport` links by aggregating recent trades from the ledger (`s.ledger.edges()`), not from any persistent link object. The wire types are intentionally lossy (e.g. only the first input/output is sent for a recipe).
 
 ### Frontend (`frontend/src/`)
 

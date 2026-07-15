@@ -131,9 +131,11 @@ func Test_state_Tick(t *testing.T) {
 		// everProduced and maxProducing are observability-only (do not
 		// affect simulation behavior): if the milestone isn't reached,
 		// they let the skip message report how far the economy actually
-		// got instead of failing silently. See the tuning investigation
-		// in commit 86fec24's message, and the "Order-Book Market" section
-		// of .superpowers/sdd/progress.md, for the full diagnosis.
+		// got instead of failing silently. See
+		// docs/superpowers/specs/2026-07-12-inventory-economy-design.md
+		// for the diagnosis that motivated the inventory-economy redesign,
+		// and .superpowers/sdd/inv-task-14-report.md for this milestone's
+		// own tuning investigation (if any was needed).
 		everProduced := make(map[string]bool)
 		maxProducing := 0
 
@@ -159,27 +161,29 @@ func Test_state_Tick(t *testing.T) {
 				delivered = partDelivered()
 			}
 		}
+		totalTrades := len(testState.ledger.trades)
 
 		if !delivered {
-			// Bounded tuning protocol (spawnProbabilityPerTick 0.05->0.2,
-			// bidRaisePct 0.02->0.05, seedCapitalBufferTicks+insolvencyGrace
-			// 300->1000, goalBidUnitPrice 1000->10000) was tried one
-			// constant at a time against this exact test and none moved
-			// the outcome -- see commit 86fec24's message for the full
-			// diagnosis. Recording observed status instead of failing
-			// silently or guessing further, per plan.
+			// Bounded tuning protocol per
+			// docs/superpowers/plans/2026-07-12-inventory-economy.md Task
+			// 14: outputStockCapTicks/inputStockTargetTicks 60->120,
+			// salvageTrickleFraction 0.25->0.5, seedCapitalBufferTicks
+			// 300->1000, transportFixedPerUnit/transportPerDistance
+			// 0.1/1e-4->0.05/5e-5 -- tried one constant (pair) at a time
+			// against this exact test, each fully reverted before the
+			// next. See .superpowers/sdd/inv-task-14-report.md for the
+			// full record of what was tried and the resulting diagnosis.
+			// Recording observed status instead of failing silently or
+			// guessing further, per the bounded protocol.
 			t.Skipf("milestone not yet reached: delivered=false after %d ticks; "+
-				"max simultaneously-producing factories=%d; distinct products ever produced=%d %v",
-				longRunTickCount, maxProducing, len(everProduced), everProduced)
+				"max simultaneously-producing factories=%d; distinct products ever produced=%d %v; "+
+				"total recent trades=%d",
+				longRunTickCount, maxProducing, len(everProduced), everProduced, totalTrades)
 		}
 
-		// TODO(Task 13/14): this conservation/trade check is a minimal
-		// stock-based stand-in kept only to satisfy the Task 12 interface
-		// cutover; the plan's Task 14 replaces it with the full
-		// conservation sanity check (no negative stock, no OutputStock
-		// over cap) and a ledger-based factory-to-factory trade check.
-		// No producer's stock may ever go negative (Inventory.Take clamps
-		// at 0, so this can only fail from a logic error upstream).
+		// Conservation sanity check: stock physically cannot oversell
+		// (Inventory.Take clamps at 0) or overfill (ProduceTick stops at
+		// the cap), so this can only fail from a logic error upstream.
 		for _, p := range testState.producers {
 			switch producer := p.(type) {
 			case *resources.Resource:
@@ -189,6 +193,11 @@ func Test_state_Tick(t *testing.T) {
 				for name, qty := range producer.OutputStock {
 					assert.GreaterOrEqual(t, qty, 0.0,
 						"factory %s has negative %s stock", producer.String(), name)
+				}
+				for _, output := range producer.Output {
+					cap := output.Rate*outputStockCapTicks + 1e-6
+					assert.LessOrEqual(t, producer.OutputStock.Get(output.Name), cap,
+						"factory %s %s stock exceeds cap", producer.String(), output.Name)
 				}
 			}
 		}
