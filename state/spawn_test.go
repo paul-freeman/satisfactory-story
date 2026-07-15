@@ -118,7 +118,7 @@ func Test_spawnNewProducer_spawns_idle_without_sourcing(t *testing.T) {
 		t.Fatalf("expected an idle factory to spawn, got %d producers", len(s.producers))
 	}
 	f := s.producers[0].(*factory.Factory)
-	if f.Producing() {
+	if f.ProducedLastTick {
 		t.Error("the factory should be idle -- there is nothing to source")
 	}
 	// Seed capital: no ask, no trade history -> pessimistic estimate.
@@ -200,12 +200,12 @@ func Test_spawnNewProducer_spawns_near_a_sourceable_input(t *testing.T) {
 	if f == nil {
 		t.Fatal("expected a factory to spawn")
 	}
-	// Near, not AT -- recipes.TransportCost treats distance <= 1 as a
+	// Near, not AT -- recipes.UnitTransportCost treats distance <= 1 as a
 	// same-location collision and charges 1e12 to avoid it (see
 	// recipes.go), so a factory that spawns exactly on its seller's
 	// coordinates would make that seller permanently unaffordable.
 	if got := f.Loc.Distance(ore.Loc); got <= 1 {
-		t.Errorf("expected the factory to spawn near, not on, its seller %v -- got %v (distance %f, must exceed the TransportCost collision threshold)", ore.Loc, f.Loc, got)
+		t.Errorf("expected the factory to spawn near, not on, its seller %v -- got %v (distance %f, must exceed the UnitTransportCost collision threshold)", ore.Loc, f.Loc, got)
 	}
 	if got := f.Loc.Distance(ore.Loc); got > 20 {
 		t.Errorf("expected the factory to spawn close to its only sourceable input %v, got %v (distance %f)", ore.Loc, f.Loc, got)
@@ -255,7 +255,7 @@ func Test_spawnNewProducer_spawns_at_centroid_of_multiple_sourceable_inputs(t *t
 }
 
 func Test_spawnNewProducer_never_collides_with_a_sourceable_input(t *testing.T) {
-	// Regression test: recipes.TransportCost charges an astronomical
+	// Regression test: recipes.UnitTransportCost charges an astronomical
 	// 1e12 for any contract between two points <= 1 apart (see
 	// recipes.go), specifically to stop factories from sitting exactly
 	// on top of another producer. spawnLocation must always clear that
@@ -281,7 +281,7 @@ func Test_spawnNewProducer_never_collides_with_a_sourceable_input(t *testing.T) 
 
 	f := s.producers[len(s.producers)-1].(*factory.Factory)
 	if got := f.Loc.Distance(ore.Loc); got <= 1 {
-		t.Fatalf("factory spawned at distance %f from its seller -- recipes.TransportCost would charge 1e12", got)
+		t.Fatalf("factory spawned at distance %f from its seller -- recipes.UnitTransportCost would charge 1e12", got)
 	}
 }
 

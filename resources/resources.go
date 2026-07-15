@@ -32,7 +32,6 @@ type Resource struct {
 	Production production.Production
 	Purity     purity
 	Loc        point.Point
-	Sales      []*production.Contract
 	// AskPrice is the persistent per-unit sale price for this node's
 	// product, adjusted by the market loop. Zero means "not yet quoted";
 	// it defaults on first use.
@@ -106,88 +105,6 @@ func (r *Resource) Remove() error {
 
 func (r *Resource) Products() production.Products {
 	return production.Products{r.Production}
-}
-
-func (r Resource) Profit() float64 {
-	profit := 0.0
-
-	// Review sales
-	newSales := make([]*production.Contract, 0)
-	for _, sale := range r.Sales {
-		if !sale.Cancelled {
-			profit += sale.ProductCost
-			profit -= sale.TransportCost
-			newSales = append(newSales, sale)
-		}
-	}
-	r.Sales = newSales
-
-	return profit
-}
-
-func (r Resource) Profitability() float64 {
-	income := 0.0
-	expenses := 0.0
-	for _, sale := range r.Sales {
-		if !sale.Cancelled {
-			income += sale.ProductCost
-			expenses += sale.TransportCost
-		}
-	}
-	return income / expenses
-}
-
-// Cash reports an effectively infinite balance -- raw resource nodes are
-// never removed for insolvency.
-func (r *Resource) Cash() float64 {
-	return math.MaxFloat64
-}
-
-// SignAsBuyer implements production.Producer.
-func (r *Resource) SignAsBuyer(_ *production.Contract) error {
-	return fmt.Errorf("resource %s cannot make purchases", r.PrettyPrint())
-}
-
-// SignAsSeller implements production.Producer.
-func (r *Resource) SignAsSeller(contract *production.Contract) error {
-	r.Sales = append(r.Sales, contract)
-	return nil
-}
-
-// RemainingCapacityFor returns how much of the given product this resource
-// could still sell, after subtracting rate already committed to active
-// sales. Returns 0 if the resource doesn't produce that product.
-func (r *Resource) RemainingCapacityFor(name string) float64 {
-	if name != r.Production.Name {
-		return 0
-	}
-	rate := r.Production.Rate
-	for _, sale := range r.Sales {
-		if sale.Cancelled || sale.Order.Name != name {
-			continue
-		}
-		rate -= sale.Order.Rate
-	}
-	if rate < 0 {
-		return 0
-	}
-	return rate
-}
-
-// HasCapacityFor implements production.Producer.
-func (r *Resource) HasCapacityFor(order production.Production) error {
-	if order.Rate <= 0 {
-		return fmt.Errorf("production rate must be positive")
-	}
-	if order.Rate > r.RemainingCapacityFor(order.Name) {
-		return fmt.Errorf("resource %s cannot produce %s at rate %f", r.PrettyPrint(), order.Key(), order.Rate)
-	}
-	return nil
-}
-
-// ContractsIn implements production.Producer.
-func (r *Resource) ContractsIn() []*production.Contract {
-	return []*production.Contract{}
 }
 
 // AskPriceFor returns the standing per-unit sale price for the named

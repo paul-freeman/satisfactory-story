@@ -165,16 +165,6 @@ func (f *floatString) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// TransportCost returns the cost of transporting the given product from the
-// given producer to the given location.
-func TransportCost(origin point.Point, destination point.Point) float64 {
-	d := origin.Distance(destination)
-	if d <= 1 {
-		return 1e12 // high cost to avoid factories moving to the same location
-	}
-	return 1 + d/10000.0
-}
-
 // Per-unit freight pricing for the inventory economy. Per-unit (not
 // per-contract-per-tick) so low-rate products are not charged 30x the
 // effective freight of high-rate ones.

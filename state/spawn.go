@@ -153,9 +153,9 @@ func (s *State) recipeCrowding() map[string]int {
 }
 
 // spawnOffsetFromInput keeps a freshly-spawned factory from landing
-// exactly on a seller's coordinates. recipes.TransportCost treats any
-// distance <= 1 as a same-location collision and charges 1e12 for it
-// (see recipes.go) -- specifically to stop Move() from doing this --
+// exactly on a seller's coordinates. recipes.UnitTransportCost treats
+// any distance <= 1 as a same-location collision and charges 1e12 for
+// it (see recipes.go) -- specifically to stop Move() from doing this --
 // so spawning right on top of a seller would make that input
 // permanently unaffordable instead of cheap. The offset only needs to
 // clear that threshold, not model any real construction footprint.

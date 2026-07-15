@@ -121,10 +121,8 @@ func Test_state_Tick(t *testing.T) {
 				if !ok || !strings.HasPrefix(sk.Name, spaceElevatorPartPrefix) {
 					continue
 				}
-				for _, purchase := range sk.Purchases {
-					if !purchase.Cancelled && purchase.Order.Rate > 0 {
-						return true
-					}
+				if sk.TotalDelivered() > 0 {
+					return true
 				}
 			}
 			return false
@@ -146,7 +144,7 @@ func Test_state_Tick(t *testing.T) {
 			producing := 0
 			for _, p := range testState.producers {
 				f, ok := p.(*factory.Factory)
-				if !ok || !f.Producing() {
+				if !ok || !f.ProducedLastTick {
 					continue
 				}
 				producing++
@@ -175,49 +173,39 @@ func Test_state_Tick(t *testing.T) {
 				longRunTickCount, maxProducing, len(everProduced), everProduced)
 		}
 
-		// No producer may ever be oversold. (Checked directly against
-		// Sales/output rate, not via RemainingCapacityFor -- that method
-		// clamps at 0, which would make this assertion pass trivially
-		// even if oversell had occurred.)
+		// TODO(Task 13/14): this conservation/trade check is a minimal
+		// stock-based stand-in kept only to satisfy the Task 12 interface
+		// cutover; the plan's Task 14 replaces it with the full
+		// conservation sanity check (no negative stock, no OutputStock
+		// over cap) and a ledger-based factory-to-factory trade check.
+		// No producer's stock may ever go negative (Inventory.Take clamps
+		// at 0, so this can only fail from a logic error upstream).
 		for _, p := range testState.producers {
 			switch producer := p.(type) {
 			case *resources.Resource:
-				committed := 0.0
-				for _, sale := range producer.Sales {
-					if !sale.Cancelled && sale.Order.Name == producer.Production.Name {
-						committed += sale.Order.Rate
-					}
-				}
-				assert.LessOrEqual(t, committed, producer.Production.Rate,
-					"resource %s oversold", producer.PrettyPrint())
+				assert.GreaterOrEqual(t, producer.Stock, 0.0,
+					"resource %s has negative stock", producer.PrettyPrint())
 			case *factory.Factory:
-				for _, output := range producer.Output {
-					committed := 0.0
-					for _, sale := range producer.Sales {
-						if !sale.Cancelled && sale.Order.Name == output.Name {
-							committed += sale.Order.Rate
-						}
-					}
-					assert.LessOrEqual(t, committed, output.Rate,
-						"factory %s oversold %s", producer.String(), output.Name)
+				for name, qty := range producer.OutputStock {
+					assert.GreaterOrEqual(t, qty, 0.0,
+						"factory %s has negative %s stock", producer.String(), name)
 				}
 			}
 		}
 
-		// Real factory-to-factory or factory-to-sink trade must exist.
+		// Real factory-to-factory trade must exist somewhere in the
+		// recent ledger.
 		factorySaleFound := false
-		for _, p := range testState.producers {
-			f, ok := p.(*factory.Factory)
-			if !ok {
+		for _, tr := range testState.ledger.trades {
+			if _, ok := tr.seller.(*factory.Factory); !ok {
 				continue
 			}
-			for _, sale := range f.Sales {
-				if !sale.Cancelled && sale.Order.Rate > 0 {
-					factorySaleFound = true
-				}
+			if _, ok := tr.buyer.(*factory.Factory); ok {
+				factorySaleFound = true
+				break
 			}
 		}
-		assert.True(t, factorySaleFound, "expected at least one factory with an active sale")
+		assert.True(t, factorySaleFound, "expected at least one factory-to-factory trade in the recent ledger")
 
 		// At least one product should have multiple coexisting producers
 		// -- a niche, not a monopoly.

@@ -10,14 +10,13 @@ import (
 	"github.com/paul-freeman/satisfactory-story/sink"
 )
 
-// deliveredTo reports whether the sink holds an active purchase.
+// deliveredTo reports whether the sink has ever received a delivery.
+// TODO(Task 13): this file is still contract-era in shape (budgets,
+// producer-tree construction); Task 13 rewrites it fully on inventory
+// semantics. This minimal swap only keeps it compiling under the
+// Task 12 interface cutover -- both tests remain t.Skip'd below.
 func deliveredTo(sk *sink.Sink) bool {
-	for _, purchase := range sk.Purchases {
-		if !purchase.Cancelled && purchase.Order.Rate > 0 {
-			return true
-		}
-	}
-	return false
+	return sk.TotalDelivered() > 0
 }
 
 // Test_cascade_single_tier: a goal sink bids for Ingot; only an Ore node

@@ -234,13 +234,15 @@ func (s *State) SetRecipe(l *slog.Logger, recipeID string, enabled bool) []state
 	}
 
 	if !enabled {
-		// Remove all producers using this recipe
+		// Remove all producers using this recipe.
+		kept := make([]production.Producer, 0, len(s.producers))
 		for _, p := range s.producers {
-			f, ok := p.(*factory.Factory)
-			if ok && f.RecipeClass == recipeID {
-				f.Remove()
+			if f, ok := p.(*factory.Factory); ok && f.RecipeClass == recipeID {
+				continue
 			}
+			kept = append(kept, p)
 		}
+		s.producers = kept
 	}
 
 	return s.Recipes(l)
