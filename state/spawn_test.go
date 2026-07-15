@@ -118,6 +118,9 @@ func Test_spawnNewProducer_spawns_idle_without_sourcing(t *testing.T) {
 		t.Fatalf("expected an idle factory to spawn, got %d producers", len(s.producers))
 	}
 	f := s.producers[0].(*factory.Factory)
+	// A freshly spawned factory has never ticked, so ProducedLastTick's
+	// zero value (false) is exactly "idle" here -- this replaces the old
+	// contract-era Producing() check, deleted in the Task 12 cutover.
 	if f.ProducedLastTick {
 		t.Error("the factory should be idle -- there is nothing to source")
 	}

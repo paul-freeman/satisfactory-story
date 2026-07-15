@@ -41,11 +41,6 @@ func (f *Sink) IsMovable() bool {
 	return false
 }
 
-// IsRemovable implements producer.
-func (f *Sink) IsRemovable() bool {
-	return false
-}
-
 // Location implements producer.
 func (f *Sink) Location() point.Point {
 	return f.Loc
