@@ -71,16 +71,6 @@ func New(
 	}
 }
 
-// IsMovable implements producer.
-func (f *Factory) IsMovable() bool {
-	return true
-}
-
-// IsRemovable implements producer.
-func (f *Factory) IsRemovable() bool {
-	return true
-}
-
 // Location implements producer.
 func (f *Factory) Location() point.Point {
 	return f.Loc

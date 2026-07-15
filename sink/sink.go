@@ -35,12 +35,6 @@ func New(
 	}
 }
 
-// IsMovable implements producer.
-func (f *Sink) IsMovable() bool {
-	// Sinks are the player's base: fixed at world center.
-	return false
-}
-
 // Location implements producer.
 func (f *Sink) Location() point.Point {
 	return f.Loc

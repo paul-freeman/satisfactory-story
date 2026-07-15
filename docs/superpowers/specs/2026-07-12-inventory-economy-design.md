@@ -270,3 +270,38 @@ Existing constants unchanged: `upkeepPerTick` 0.5, `insolvencyGrace`
 
 Stock-level UI, standing supply agreements / loyalty bias, spoilage,
 storage costs, multi-good shipment batching, alternate recipes.
+
+## Status (as implemented)
+
+All 14 plan tasks landed; the design's core mechanism is proven at
+small scale (Task 13's single- and two-tier cascade tests deliver
+genuinely, independently reproduced deterministically). **The full
+~139-recipe milestone (deliver a `SpaceElevatorPart_*` within 100k
+ticks at seed 152) was NOT reached** after the bounded tuning protocol
+(4 knobs, one at a time, none moved the outcome).
+
+Root cause, verified against the code (not guessed): `state/prices.go`'s
+bid escalation (`bidRaisePct`) is deliberately uncapped, relying on the
+trade-time wallet clamp in `state/orders.go`'s `executeTrade` to keep
+runaway prices harmless — and it does, for actual trades. But
+`state/spawn.go`'s `expectedProfit`/`estimatedUnitCost` read the same
+escalated book prices at face value with no plausibility bound, to
+decide spawn weighting. In this data set, `Water` has no producible
+source (absent from `resources/Resource.json`; every active recipe
+that outputs it needs a Water-derived input to run, a deadlock, not a
+simple cycle) — so bids for it escalate without limit (~10^63-10^69 by
+tick ~7000), and recipes near that dead end capture nearly all
+spawn-weight, starving viable recipes elsewhere in the book, including
+the Water-free `SpaceElevatorPart_1` chain (`IronPlateReinforced` +
+`Rotor`, fully producible from raw ore) that the milestone actually
+needs. Water is the trigger this run happened to hit, not the target's
+blocker — fixing the missing Water source alone would not be expected
+to reach the milestone; bounding the spawn estimator against
+implausible book prices is the load-bearing fix.
+
+Not attempted in this phase (real design decisions, not constant
+tweaks): capping bid escalation, or making
+`expectedProfit`/`estimatedUnitCost` discount/ignore prices with no
+recent trade behind them; separately, adding a Water resource/recipe
+to fix the underlying data gap. Both are candidates for a future
+phase if the user wants to pursue the milestone further.

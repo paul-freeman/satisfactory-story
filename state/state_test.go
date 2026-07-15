@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"log/slog"
 	"os"
 	"strings"
@@ -132,10 +133,9 @@ func Test_state_Tick(t *testing.T) {
 		// affect simulation behavior): if the milestone isn't reached,
 		// they let the skip message report how far the economy actually
 		// got instead of failing silently. See
-		// docs/superpowers/specs/2026-07-12-inventory-economy-design.md
-		// for the diagnosis that motivated the inventory-economy redesign,
-		// and .superpowers/sdd/inv-task-14-report.md for this milestone's
-		// own tuning investigation (if any was needed).
+		// docs/superpowers/specs/2026-07-12-inventory-economy-design.md's
+		// "Status (as implemented)" section for the bounded tuning
+		// protocol's results and root-cause diagnosis.
 		everProduced := make(map[string]bool)
 		maxProducing := 0
 
@@ -242,6 +242,41 @@ func Test_state_Tick(t *testing.T) {
 		assert.True(t, delivered,
 			"expected a SpaceElevatorPart_* delivery to a goal sink within %d ticks", longRunTickCount)
 	})
+}
+
+// Test_state_determinism guards the property the whole design depends
+// on: identical seeds must produce identical runs. Two independent
+// States are ticked the same number of times and their full wire
+// snapshots (which cover every producer's location, stock-derived
+// state, and the ledger-derived transport/shortage views) must be
+// byte-identical. This is deliberately a real run, not a single-tick
+// smoke test -- a nondeterminism bug (e.g. a stray map range over
+// producer state) is far more likely to surface after many ticks of
+// spawning/trading/moving than after one.
+func Test_state_determinism(t *testing.T) {
+	l := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level:       slog.LevelError,
+		ReplaceAttr: removeTimeAndLevel,
+	}))
+	const ticks = 2000
+	const seed = int64(152)
+
+	run := func() []byte {
+		logLevel := new(slog.Level)
+		s, err := New(l, logLevel, seed)
+		assert.NoError(t, err, "failed to create state")
+		for i := 0; i < ticks; i++ {
+			assert.NoError(t, s.Tick(l), "failed to tick state")
+		}
+		snapshot, err := json.Marshal(s)
+		assert.NoError(t, err, "failed to marshal state")
+		return snapshot
+	}
+
+	first := run()
+	second := run()
+	assert.Equal(t, string(first), string(second),
+		"two runs from the same seed produced different wire snapshots after %d ticks", ticks)
 }
 
 func removeTimeAndLevel(_ []string, a slog.Attr) slog.Attr {

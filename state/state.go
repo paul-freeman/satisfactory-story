@@ -31,8 +31,8 @@ type State struct {
 	recipes   recipes.Recipes
 	// book is the per-tick order book: rebuilt from live producer state
 	// by publishOrders, crossed by matchOrders. Persisted on State so
-	// later phases of the same tick (spawning, renegotiation, price
-	// adjustment, the wire format) can read post-matching residuals.
+	// later phases of the same tick (spawning, price adjustment, the
+	// wire format) can read post-matching residuals.
 	book *market.Book
 	// lastTrade remembers the most recent traded unit price per product,
 	// used to estimate input costs for products with no current ask.

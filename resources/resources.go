@@ -91,18 +91,6 @@ func (r *Resource) Location() point.Point {
 	return r.Loc
 }
 
-func (r *Resource) IsMovable() bool {
-	return false
-}
-
-func (r *Resource) IsRemovable() bool {
-	return false
-}
-
-func (r *Resource) Remove() error {
-	return fmt.Errorf("resource %s cannot be removed", r.PrettyPrint())
-}
-
 func (r *Resource) Products() production.Products {
 	return production.Products{r.Production}
 }
