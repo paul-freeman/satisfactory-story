@@ -3,6 +3,7 @@ package state
 import (
 	"testing"
 
+	"github.com/paul-freeman/satisfactory-story/factory"
 	"github.com/paul-freeman/satisfactory-story/point"
 	"github.com/paul-freeman/satisfactory-story/production"
 	"github.com/paul-freeman/satisfactory-story/recipes"
@@ -10,22 +11,32 @@ import (
 	"github.com/paul-freeman/satisfactory-story/sink"
 )
 
-// deliveredTo reports whether the sink has ever received a delivery.
-// TODO(Task 13): this file is still contract-era in shape (budgets,
-// producer-tree construction); Task 13 rewrites it fully on inventory
-// semantics. This minimal swap only keeps it compiling under the
-// Task 12 interface cutover -- both tests remain t.Skip'd below.
-func deliveredTo(sk *sink.Sink) bool {
-	return sk.TotalDelivered() > 0
+// delivered reports whether any sink in the world has ever received a
+// delivery.
+func delivered(s *State) bool {
+	for _, p := range s.producers {
+		if sk, ok := p.(*sink.Sink); ok && sk.TotalDelivered() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// anyFactoryProducing reports whether any factory in the world produced
+// output on its most recent tick.
+func anyFactoryProducing(s *State) bool {
+	for _, p := range s.producers {
+		if f, ok := p.(*factory.Factory); ok && f.ProducedLastTick {
+			return true
+		}
+	}
+	return false
 }
 
 // Test_cascade_single_tier: a goal sink bids for Ingot; only an Ore node
 // exists. A smelter must spawn, source Ore through the book, produce,
 // and deliver to the sink -- demand becomes supply with no tree-reading.
 func Test_cascade_single_tier(t *testing.T) {
-	t.Skip("cutover in progress: cascade tests exercise the full pipeline, which " +
-		"until Task 8 (stock-signal prices) still freezes factory bids under the old " +
-		"affordability cap; Task 13 rewrites these tests on inventory semantics")
 	ore := &resources.Resource{
 		Production: production.Production{Name: "Ore", Rate: 100},
 		Loc:        point.Point{X: 400, Y: 400},
@@ -44,15 +55,28 @@ func Test_cascade_single_tier(t *testing.T) {
 
 	s := newTestStateWithProducers(rs, []production.Producer{ore, goal})
 
-	const budget = 20000
-	for i := 0; i < budget && !deliveredTo(goal); i++ {
+	const budget = 2000
+	sawProducing := false
+	i := 0
+	for ; i < budget && !delivered(s); i++ {
 		if err := s.Tick(testLogger()); err != nil {
 			t.Fatalf("tick %d failed: %v", i, err)
 		}
+		if anyFactoryProducing(s) {
+			sawProducing = true
+		}
 	}
 
-	if !deliveredTo(goal) {
+	if !delivered(s) {
 		t.Fatalf("no Ingot delivered to the goal sink within %d ticks", budget)
+	}
+	t.Logf("Ingot delivered after %d ticks", i)
+
+	if !sawProducing {
+		t.Fatal("no factory ever reported ProducedLastTick == true before delivery")
+	}
+	if len(s.ledger.trades) == 0 {
+		t.Fatal("trade ledger is empty at delivery time; no trades were recorded")
 	}
 }
 
@@ -61,9 +85,6 @@ func Test_cascade_single_tier(t *testing.T) {
 // escalating Ingot bid must make smelting look profitable, a smelter
 // must spawn and connect to Ore, and the full chain must flow.
 func Test_cascade_two_tier(t *testing.T) {
-	t.Skip("cutover in progress: cascade tests exercise the full pipeline, which " +
-		"until Task 8 (stock-signal prices) still freezes factory bids under the old " +
-		"affordability cap; Task 13 rewrites these tests on inventory semantics")
 	ore := &resources.Resource{
 		Production: production.Production{Name: "Ore", Rate: 100},
 		Loc:        point.Point{X: 400, Y: 400},
@@ -89,14 +110,27 @@ func Test_cascade_two_tier(t *testing.T) {
 
 	s := newTestStateWithProducers(rs, []production.Producer{ore, goal})
 
-	const budget = 50000
-	for i := 0; i < budget && !deliveredTo(goal); i++ {
+	const budget = 5000
+	sawProducing := false
+	i := 0
+	for ; i < budget && !delivered(s); i++ {
 		if err := s.Tick(testLogger()); err != nil {
 			t.Fatalf("tick %d failed: %v", i, err)
 		}
+		if anyFactoryProducing(s) {
+			sawProducing = true
+		}
 	}
 
-	if !deliveredTo(goal) {
+	if !delivered(s) {
 		t.Fatalf("no Plate delivered to the goal sink within %d ticks", budget)
+	}
+	t.Logf("Plate delivered after %d ticks", i)
+
+	if !sawProducing {
+		t.Fatal("no factory ever reported ProducedLastTick == true before delivery")
+	}
+	if len(s.ledger.trades) == 0 {
+		t.Fatal("trade ledger is empty at delivery time; no trades were recorded")
 	}
 }
