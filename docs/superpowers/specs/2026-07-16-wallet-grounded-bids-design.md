@@ -163,3 +163,52 @@ If the implementation cannot pass this, stop and report with diagnostics
   wallet-grounded.
 - Any frontend or wire-format change — capped prices flow through the
   existing fields.
+
+## Status (as implemented)
+
+Implemented 2026-07-19. The wallet-grounded cap (`state/prices.go`), 8
+Water nodes (`resources/Resource.json`), and the hardened
+sustained-delivery milestone test (`state/state_test.go`) all landed.
+Implementation also surfaced and fixed a bug present since the initial
+commit: `resources.New` passed `production.New`'s amount/duration
+arguments swapped, so purity extraction rates were inverted (impure
+2.0/tick, pure 0.5/tick — 232 of 433 nodes wrong). Fixed in its own
+commit with a purity-rate regression test.
+
+**Milestone run at seed 152: NOT REACHED.** No `SpaceElevatorPart_*`
+delivery in 100k ticks (61s wall clock). But the economy is
+transformed vs Phase 4 (which pinned at 1 producing factory / 1
+product): max 21 simultaneously-producing factories, 18 distinct
+products ever produced, 8794 recent trades, 33 live factory classes at
+tick 100k, with the water/oil/aluminum branch fully active.
+
+A read-only deterministic probe (checkpoints at 5k/20k/50k/100k ticks;
+temporary test, not committed) identified two new root causes, both
+outside this spec's scope:
+
+1. **Seed-capital money pump.** `state/spawn.go` seeds each new
+   factory with `stockCost × inputStockTargetTicks` where `stockCost`
+   is priced off current book asks (`estimatedDeliveredCost`). When a
+   loop's prices inflate, its entrants spawn with proportionally
+   inflated wallets, whose wallet-backed (capped, "honest") bids then
+   validate those prices — an unbounded money-injection feedback loop.
+   By tick 100k the packaging loops hold nine-figure cash (Unpackage
+   Alumina Solution: 96 factories, 121M combined; best Water bid
+   ~25k/unit, fully wallet-backed) and permanently absorb ~all spawn
+   weight (top loop recipes at 5–20% each of total weight).
+
+2. **The sink-driven cascade starves before it can assemble a deep
+   chain.** Smart Plating (fed by the sink's fixed 1000 bid) spawns
+   with ~2.5k seed capital: a ~5000-tick upkeep runway. Its input bids
+   escalate 2%/tick from ~12 but the wallet cap tops them out at ~42
+   as the wallet drains (observed: Rotor/ReinforcedIronPlate bids
+   peak 42.50, later −8 once cash goes negative) — far below the
+   ~360+/unit that would make a Rotor factory profitable. The demand
+   signal dies, honestly, before it can summon even one tier below;
+   iron recipes' expected profit stays negative all run (Iron Ingot
+   −1.45/tick) and their spawn weight stays at the exploration floor
+   (~0.006–0.01% each), so the iron chain never lights up at all.
+
+Per the bounded protocol: no tuning attempted; the next move (e.g.
+grounding seed capital, faster/pre-funded cascade bids, or Approach B)
+is a design decision for Phase 6.
