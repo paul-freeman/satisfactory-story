@@ -20,6 +20,14 @@ import (
 // behavior.
 const longRunTickCount = 100000
 
+// sustainedWindowTicks and sustainedMinUnits define the Phase 5
+// sustained-delivery bar (docs/superpowers/specs/
+// 2026-07-16-wallet-grounded-bids-design.md): after the first
+// space-elevator-part delivery, at least sustainedMinUnits more units
+// must arrive within the next sustainedWindowTicks ticks.
+const sustainedWindowTicks = 20000
+const sustainedMinUnits = 5.0
+
 func Test_state_Tick(t *testing.T) {
 	t.Run("all resources should be in a recipe", func(t *testing.T) {
 		l := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -116,30 +124,26 @@ func Test_state_Tick(t *testing.T) {
 		testState, err := New(l, logLevel, seed)
 		assert.NoError(t, err, "failed to create state")
 
-		partDelivered := func() bool {
+		totalPartsDelivered := func() float64 {
+			total := 0.0
 			for _, p := range testState.producers {
 				sk, ok := p.(*sink.Sink)
 				if !ok || !strings.HasPrefix(sk.Name, spaceElevatorPartPrefix) {
 					continue
 				}
-				if sk.TotalDelivered() > 0 {
-					return true
-				}
+				total += sk.TotalDelivered()
 			}
-			return false
+			return total
 		}
 
-		// everProduced and maxProducing are observability-only (do not
-		// affect simulation behavior): if the milestone isn't reached,
-		// they let the skip message report how far the economy actually
-		// got instead of failing silently. See
-		// docs/superpowers/specs/2026-07-12-inventory-economy-design.md's
-		// "Status (as implemented)" section for the bounded tuning
-		// protocol's results and root-cause diagnosis.
+		// everProduced and maxProducing are observability-only (they do
+		// not affect simulation behavior): they let a milestone failure
+		// report how far the economy actually got.
 		everProduced := make(map[string]bool)
 		maxProducing := 0
 
 		delivered := false
+		firstDeliveryTick := 0
 		for i := 0; i < longRunTickCount && !delivered; i++ {
 			err = testState.Tick(l)
 			assert.NoError(t, err, "failed to tick state")
@@ -157,28 +161,33 @@ func Test_state_Tick(t *testing.T) {
 			if producing > maxProducing {
 				maxProducing = producing
 			}
-			if i%100 == 99 {
-				delivered = partDelivered()
+			if i%100 == 99 && totalPartsDelivered() > 0 {
+				delivered = true
+				firstDeliveryTick = i + 1
 			}
 		}
-		totalTrades := len(testState.ledger.trades)
 
+		// THE MILESTONE, part 1 (Phase 5 spec, hard assertion): a
+		// space-elevator part must be delivered within longRunTickCount.
 		if !delivered {
-			// Bounded tuning protocol per
-			// docs/superpowers/plans/2026-07-12-inventory-economy.md Task
-			// 14: outputStockCapTicks/inputStockTargetTicks 60->120,
-			// salvageTrickleFraction 0.25->0.5, seedCapitalBufferTicks
-			// 300->1000, transportFixedPerUnit/transportPerDistance
-			// 0.1/1e-4->0.05/5e-5 -- tried one constant (pair) at a time
-			// against this exact test, each fully reverted before the
-			// next. See .superpowers/sdd/inv-task-14-report.md for the
-			// full record of what was tried and the resulting diagnosis.
-			// Recording observed status instead of failing silently or
-			// guessing further, per the bounded protocol.
-			t.Skipf("milestone not yet reached: delivered=false after %d ticks; "+
+			t.Fatalf("milestone not reached: no SpaceElevatorPart_* delivery after %d ticks; "+
 				"max simultaneously-producing factories=%d; distinct products ever produced=%d %v; "+
 				"total recent trades=%d",
-				longRunTickCount, maxProducing, len(everProduced), everProduced, totalTrades)
+				longRunTickCount, maxProducing, len(everProduced), everProduced,
+				len(testState.ledger.trades))
+		}
+
+		// THE MILESTONE, part 2: delivery must be sustained, not a fluke.
+		baseline := totalPartsDelivered()
+		for i := 0; i < sustainedWindowTicks; i++ {
+			err = testState.Tick(l)
+			assert.NoError(t, err, "failed to tick state")
+		}
+		sustainedDelta := totalPartsDelivered() - baseline
+		if sustainedDelta < sustainedMinUnits {
+			t.Fatalf("milestone not sustained: first delivery by tick %d, but only %.1f more "+
+				"units arrived in the following %d ticks; want >= %.0f",
+				firstDeliveryTick, sustainedDelta, sustainedWindowTicks, sustainedMinUnits)
 		}
 
 		// Conservation sanity check: stock physically cannot oversell
@@ -236,11 +245,6 @@ func Test_state_Tick(t *testing.T) {
 			}
 		}
 		assert.True(t, foundNiche, "expected at least one product with multiple coexisting producers")
-
-		// THE MILESTONE (spec success bar): the economy self-assembles a
-		// full multi-tier chain and delivers a space-elevator part.
-		assert.True(t, delivered,
-			"expected a SpaceElevatorPart_* delivery to a goal sink within %d ticks", longRunTickCount)
 	})
 }
 
