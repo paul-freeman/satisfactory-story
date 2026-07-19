@@ -16,10 +16,10 @@ const askRaisePct = 0.05
 const askLowerPct = 0.02
 
 // bidRaisePct is how much a buyer escalates an unfilled input bid per
-// tick. The escalating bid is the backward demand cascade. There is no
-// affordability precondition anymore: the wallet clamp at trade time is
-// the hard constraint, so a high bid with no money behind it buys
-// nothing (this is what makes speculative price loops harmless).
+// tick. The escalating bid is the backward demand cascade. Escalation is
+// clamped in adjustPrices to Cash/Hunger -- the wallet-grounded cap --
+// so every posted price is backed by money the buyer actually has and
+// dead-end demand can never compound into absurd book prices.
 const bidRaisePct = 0.02
 
 // adjustPrices lets every producer react locally to this tick's fill
@@ -55,7 +55,17 @@ func (s *State) adjustPrices(_ *slog.Logger) {
 			if !ok {
 				continue // sink bids are fixed
 			}
-			buyer.SetBidPrice(product, buyer.BidPriceFor(product)*(1+bidRaisePct))
+			escalated := buyer.BidPriceFor(product) * (1 + bidRaisePct)
+			// Wallet-grounded cap: a standing bid never promises more per
+			// unit than the wallet could pay for the full hunger. It
+			// applies even when it lowers the current price, so dying
+			// demand fades honestly instead of screaming louder. Near-zero
+			// hunger (a bid that just got mostly filled) means no cap this
+			// tick -- guarded explicitly so Cash/0 can't inject Inf or NaN.
+			if hunger := buyer.Hunger(product, inputStockTargetTicks); hunger > production.RateEpsilon {
+				escalated = math.Min(escalated, buyer.Cash()/hunger)
+			}
+			buyer.SetBidPrice(product, escalated)
 		}
 	}
 }

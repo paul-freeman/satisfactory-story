@@ -64,3 +64,66 @@ func Test_adjustPrices_bidRaisesWhileHungry(t *testing.T) {
 		t.Fatalf("filled bid = %v, want 1.0 (unchanged)", got)
 	}
 }
+
+func Test_adjustPrices_bidCappedByWallet(t *testing.T) {
+	s := newTestState()
+	f := factory.New("Plates", "Recipe_Plates_C", point.Point{X: 0, Y: 0}, 0,
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		production.Products{production.Production{Name: "IronPlate", Rate: 2}},
+		100)
+	s.producers = []production.Producer{f}
+	// Hunger = rate 1 * inputStockTargetTicks 60 - stock 0 = 60.
+	// Cap = Cash/Hunger = 100/60.
+	cap := 100.0 / 60.0
+
+	// Escalation would overshoot the cap: the bid lands exactly on it.
+	f.SetBidPrice("IronIngot", 1.65) // 1.65 * 1.02 = 1.683 > cap
+	s.book.Clear()
+	s.book.PostBid(f, "IronIngot", 5, 1.65)
+	s.adjustPrices(testLogger())
+	if got := f.BidPriceFor("IronIngot"); got != cap {
+		t.Fatalf("over-cap escalated bid = %v, want exactly cap %v", got, cap)
+	}
+}
+
+func Test_adjustPrices_bidPulledDownToWalletCap(t *testing.T) {
+	// A bid already far above the cap (e.g. the wallet drained since the
+	// price was set) is pulled DOWN to the cap, not just stopped from
+	// rising: dying demand fades honestly.
+	s := newTestState()
+	f := factory.New("Plates", "Recipe_Plates_C", point.Point{X: 0, Y: 0}, 0,
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		production.Products{production.Production{Name: "IronPlate", Rate: 2}},
+		100)
+	s.producers = []production.Producer{f}
+	cap := 100.0 / 60.0
+
+	f.SetBidPrice("IronIngot", 5.0) // way above cap
+	s.book.Clear()
+	s.book.PostBid(f, "IronIngot", 5, 5.0)
+	s.adjustPrices(testLogger())
+	if got := f.BidPriceFor("IronIngot"); got != cap {
+		t.Fatalf("above-cap bid = %v, want pulled down to cap %v", got, cap)
+	}
+}
+
+func Test_adjustPrices_zeroHungerBidEscalatesUncapped(t *testing.T) {
+	// A partially-filled bid can still be in the book when input stock is
+	// already at target (hunger ~0). The cap quotient would be Cash/0:
+	// the clamp must be skipped entirely (spec: no cap in this case), and
+	// must not produce NaN even with an empty wallet.
+	s := newTestState()
+	f := factory.New("Plates", "Recipe_Plates_C", point.Point{X: 0, Y: 0}, 0,
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		production.Products{production.Production{Name: "IronPlate", Rate: 2}},
+		0) // empty wallet: Cash/Hunger would be 0/0 = NaN
+	s.producers = []production.Producer{f}
+	f.InputStock["IronIngot"] = 60 // rate 1 * target 60 => hunger 0
+	f.SetBidPrice("IronIngot", 1.0)
+	s.book.Clear()
+	s.book.PostBid(f, "IronIngot", 5, 1.0)
+	s.adjustPrices(testLogger())
+	if got := f.BidPriceFor("IronIngot"); got != 1.0*(1+bidRaisePct) {
+		t.Fatalf("zero-hunger bid = %v, want uncapped escalation %v", got, 1.0*(1+bidRaisePct))
+	}
+}
