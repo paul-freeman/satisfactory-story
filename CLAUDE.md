@@ -13,7 +13,8 @@ Backend (Go):
 ```bash
 go run ./cmd/story        # start the simulation + HTTP server on :28100
 go build ./...            # build everything
-go test ./...             # run all tests
+go test ./... -short      # run all fast tests (day-to-day loop)
+go test ./...             # also runs the ~60s long-run milestone gate -- expected RED until the space-elevator milestone is reached (see the Phase 5 spec's Status section)
 go test ./state -run Test_state_Tick   # run a single test
 ```
 
