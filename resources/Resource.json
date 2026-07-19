@@ -2163,5 +2163,45 @@
         "id": "geyserPure",
         "lat": -117.31644533333338,
         "lng": 87.61684525592334
+    },
+    {
+        "id": "waterPure",
+        "lat": -105.91,
+        "lng": 52.68
+    },
+    {
+        "id": "waterPure",
+        "lat": -105.91,
+        "lng": 82.03
+    },
+    {
+        "id": "waterPure",
+        "lat": -105.91,
+        "lng": 111.39
+    },
+    {
+        "id": "waterPure",
+        "lat": -80.13,
+        "lng": 52.68
+    },
+    {
+        "id": "waterPure",
+        "lat": -80.13,
+        "lng": 111.39
+    },
+    {
+        "id": "waterPure",
+        "lat": -54.36,
+        "lng": 52.68
+    },
+    {
+        "id": "waterPure",
+        "lat": -54.36,
+        "lng": 82.03
+    },
+    {
+        "id": "waterPure",
+        "lat": -54.36,
+        "lng": 111.39
     }
 ]

@@ -147,6 +147,8 @@ func toCanonicalName(name string) string {
 		return "RawQuartz"
 	case "uranium":
 		return "OreUranium"
+	case "water":
+		return "Water"
 	default:
 		return name
 	}

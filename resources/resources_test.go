@@ -73,3 +73,46 @@ func Test_Resource_purity_rates(t *testing.T) {
 		}
 	}
 }
+
+func Test_Resource_water_nodes_load(t *testing.T) {
+	rs, err := New()
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	// The 8 synthetic water nodes from the Phase 5 spec
+	// (docs/superpowers/specs/2026-07-16-wallet-grounded-bids-design.md):
+	// a 3x3 interior grid of the resource bounding box minus its center.
+	// Expected locations use the same lat/lng scaling as New().
+	expected := make(map[point.Point]bool)
+	for _, c := range []struct{ lat, lng float64 }{
+		{-105.91, 52.68}, {-105.91, 82.03}, {-105.91, 111.39},
+		{-80.13, 52.68}, {-80.13, 111.39},
+		{-54.36, 52.68}, {-54.36, 82.03}, {-54.36, 111.39},
+	} {
+		expected[point.Point{X: int(c.lng * 1000), Y: int(c.lat * 1000)}] = true
+	}
+
+	found := 0
+	for _, r := range rs {
+		if r.Production.Name != "Water" {
+			continue
+		}
+		found++
+		if r.Purity != pure {
+			t.Errorf("water node at %s: purity = %v, want %v", r.Loc.String(), r.Purity, pure)
+		}
+		if r.Production.Rate != 120.0/60.0 {
+			t.Errorf("water node at %s: rate = %v, want %v", r.Loc.String(), r.Production.Rate, 120.0/60.0)
+		}
+		if !expected[r.Loc] {
+			t.Errorf("unexpected water node location %s", r.Loc.String())
+		}
+		delete(expected, r.Loc)
+	}
+	if found != 8 {
+		t.Errorf("found %d water nodes, want 8", found)
+	}
+	for loc := range expected {
+		t.Errorf("missing water node at %s", loc.String())
+	}
+}
