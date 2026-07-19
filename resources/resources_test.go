@@ -39,3 +39,37 @@ func Test_Resource_ProduceTick(t *testing.T) {
 		t.Fatalf("stock at cap = %v, want 6", r.Stock)
 	}
 }
+
+func Test_Resource_purity_rates(t *testing.T) {
+	// Purity maps to 30/60/120 units per 60s, i.e. 0.5/1.0/2.0 units per
+	// tick. The original code inverted these (amount and duration were
+	// swapped into production.New), so impure nodes extracted 4x faster
+	// than pure ones.
+	rs, err := New()
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	wantByPurity := map[purity]float64{
+		impure: 30.0 / 60.0,
+		normal: 60.0 / 60.0,
+		pure:   120.0 / 60.0,
+	}
+	seen := make(map[purity]bool)
+	for _, r := range rs {
+		want, ok := wantByPurity[r.Purity]
+		if !ok {
+			t.Errorf("node at %s has unknown purity %q", r.Loc.String(), r.Purity)
+			continue
+		}
+		seen[r.Purity] = true
+		if r.Production.Rate != want {
+			t.Errorf("%s node at %s: rate = %v, want %v",
+				r.Purity, r.Loc.String(), r.Production.Rate, want)
+		}
+	}
+	for p := range wantByPurity {
+		if !seen[p] {
+			t.Errorf("no %s node found in Resource.json", p)
+		}
+	}
+}

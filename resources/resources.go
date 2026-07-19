@@ -72,7 +72,7 @@ func New() ([]*Resource, error) {
 		x := int(data.Longitude * 1000)
 		y := int(data.Latitude * 1000)
 		resources[i] = &Resource{
-			Production: production.New(name, 1, amount/duration),
+			Production: production.New(name, amount/duration, 1),
 			Purity:     purity,
 			Loc:        point.Point{X: x, Y: y},
 		}
