@@ -107,6 +107,38 @@ func Test_adjustPrices_bidPulledDownToWalletCap(t *testing.T) {
 	}
 }
 
+func Test_adjustPrices_negativeCashBidFloorsAtMinAndRecovers(t *testing.T) {
+	// A wallet driven negative by upkeep during the insolvency grace has a
+	// negative Cash/Hunger cap. The floor must pull the bid to MinUnitPrice
+	// -- NOT a negative price, which multiplicative escalation could never
+	// climb back out of -- and once cash recovers the bid re-escalates.
+	s := newTestState()
+	f := factory.New("Plates", "Recipe_Plates_C", point.Point{X: 0, Y: 0}, 0,
+		production.Products{production.Production{Name: "IronIngot", Rate: 1}},
+		production.Products{production.Production{Name: "IronPlate", Rate: 2}},
+		-50) // negative wallet: Cash/Hunger = -50/60 < 0
+	s.producers = []production.Producer{f}
+
+	f.SetBidPrice("IronIngot", 1.0)
+	s.book.Clear()
+	s.book.PostBid(f, "IronIngot", 5, 1.0)
+	s.adjustPrices(testLogger())
+	if got := f.BidPriceFor("IronIngot"); got != production.MinUnitPrice {
+		t.Fatalf("negative-cash bid = %v, want floored at MinUnitPrice %v (not negative)",
+			got, production.MinUnitPrice)
+	}
+
+	// Wallet recovers: the floored bid can now escalate back above the
+	// floor -- the lock-out is gone.
+	f.Wallet.Adjust(150) // balance now 100 -> cap = 100/60 ~ 1.667
+	s.book.Clear()
+	s.book.PostBid(f, "IronIngot", 5, production.MinUnitPrice)
+	s.adjustPrices(testLogger())
+	if got := f.BidPriceFor("IronIngot"); got != production.MinUnitPrice*(1+bidRaisePct) {
+		t.Fatalf("recovered bid = %v, want re-escalated %v", got, production.MinUnitPrice*(1+bidRaisePct))
+	}
+}
+
 func Test_adjustPrices_zeroHungerBidEscalatesUncapped(t *testing.T) {
 	// A partially-filled bid can still be in the book when input stock is
 	// already at target (hunger ~0). The cap quotient would be Cash/0:

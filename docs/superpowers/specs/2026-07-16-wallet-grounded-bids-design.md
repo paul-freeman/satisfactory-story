@@ -38,10 +38,12 @@ is bounding bids by real money.
 ## Decision 1: wallet-grounded bid cap
 
 **Invariant:** a factory's standing bid price for an input never exceeds
-what its wallet could pay for the quantity it is asking for:
+what its wallet could pay for the quantity it is asking for, floored at
+`MinUnitPrice` so a transiently-negative wallet fades to a non-matching
+floor instead of a negative price:
 
 ```
-BidPrice(product) <= Cash() / Hunger(product, inputStockTargetTicks)
+BidPrice(product) <= max(MinUnitPrice, Cash() / Hunger(product, inputStockTargetTicks))
 ```
 
 **Enforcement point:** `adjustPrices` (`state/prices.go`), the only place
@@ -69,8 +71,15 @@ partitioning.
   the cap then approaches `+Inf` (Go float division, no crash) and the
   clamp is a no-op. That is correct — a stocked, actively-trading buyer
   paying a high marginal price is honest, transient, and self-limiting.
-- `Cash() ≤ 0`: cap ≤ 0, so the bid price is forced to ≤ 0 and can never
-  match; insolvency removes the factory within `insolvencyGrace` anyway.
+- `Cash() ≤ 0`: the raw quotient is ≤ 0, but the `MinUnitPrice` floor
+  pulls the bid down to `MinUnitPrice` (still non-matching against any
+  real ask, since the trade-time wallet clamp blocks a negative-cash buy)
+  rather than to a negative price. A negative bid could never climb back
+  out through multiplicative escalation (`neg × 1.02` stays negative),
+  permanently locking out a factory that later regains cash during the
+  insolvency grace; the floor keeps the bid dormant-but-recoverable.
+  Insolvency still removes a persistently-negative factory within
+  `insolvencyGrace`.
 - Sink bids stay fixed at `goalBidUnitPrice` (1000), untouched — sinks
   are not factories and `adjustPrices` already skips them.
 - Staleness: the cap reads the wallet as of end-of-tick (`adjustPrices`
@@ -145,6 +154,9 @@ If the implementation cannot pass this, stop and report with diagnostics
 - **Unit — cap pulls down:** an unfilled bid priced above a
   newly-shrunken wallet's cap is lowered to the cap on the next
   `adjustPrices`, even without escalation room.
+- **Unit — negative-wallet floor:** a bid on a factory whose `Cash()` is
+  negative is floored at `MinUnitPrice` (not a negative price) and, once
+  cash recovers, re-escalates above the floor.
 - **Unit — water nodes load:** `resources.New()` yields 8 `Water`
   producers at rate 120/60 with the expected locations.
 - **Regression:** existing cascade tests (`state/cascade_test.go`),

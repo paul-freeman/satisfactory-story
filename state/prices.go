@@ -62,8 +62,18 @@ func (s *State) adjustPrices(_ *slog.Logger) {
 			// demand fades honestly instead of screaming louder. Near-zero
 			// hunger (a bid that just got mostly filled) means no cap this
 			// tick -- guarded explicitly so Cash/0 can't inject Inf or NaN.
+			//
+			// The cap is floored at MinUnitPrice so a transiently-insolvent
+			// wallet (upkeep drove Cash negative during the insolvency
+			// grace) fades its bid down to the floor instead of a NEGATIVE
+			// price. A negative bid could never climb back through the
+			// multiplicative escalation (neg*1.02 stays negative), which
+			// would permanently lock out a factory that later regains cash;
+			// flooring at MinUnitPrice keeps the bid non-matching but able
+			// to re-escalate once the wallet recovers.
 			if hunger := buyer.Hunger(product, inputStockTargetTicks); hunger > production.RateEpsilon {
-				escalated = math.Min(escalated, buyer.Cash()/hunger)
+				cap := math.Max(production.MinUnitPrice, buyer.Cash()/hunger)
+				escalated = math.Min(escalated, cap)
 			}
 			buyer.SetBidPrice(product, escalated)
 		}
