@@ -58,11 +58,24 @@ func (s *State) applySolvency(l *slog.Logger) {
 		f.TickRevenue += salvage
 		f.FoldTickFlows(inputSpendSmoothing)
 		f.Wallet.Apply(salvage - upkeepPerTick)
+		// Rent: the upkeep the factory just paid is collected into the
+		// treasury rather than burned. The factory's wallet change above
+		// is identical either way, so solvency dynamics are unchanged --
+		// only the money's destination moves, funding future seed capital.
+		s.treasury += upkeepPerTick
 
 		if f.Wallet.InsolventFor(insolvencyGrace) {
 			l.Debug("removing bankrupt factory",
 				slog.String("factory", f.String()),
 				slog.Float64("cash", f.Wallet.Cash()))
+			// Recycle any positive residual cash back into the treasury.
+			// Dormant today: the only cull path is InsolventFor, so a
+			// culled factory's cash is always negative and this never
+			// fires. Kept as correct, defensive accounting for a future
+			// phase that might cull profitable-but-idle factories.
+			if cash := f.Wallet.Cash(); cash > 0 {
+				s.treasury += cash
+			}
 			continue // not kept: the factory and its stock vanish
 		}
 

@@ -41,6 +41,35 @@ func Test_applySolvency_salvageTrickleOnlyWhenCapped(t *testing.T) {
 	}
 }
 
+func Test_applySolvency_collectsUpkeepAsRent(t *testing.T) {
+	s := newTestState()
+	f1 := factory.New("A", "Recipe_A_C", point.Point{X: 0, Y: 0}, 0,
+		production.Products{production.Production{Name: "In", Rate: 1}},
+		production.Products{production.Production{Name: "Out", Rate: 1}},
+		100)
+	f2 := factory.New("B", "Recipe_B_C", point.Point{X: 10, Y: 0}, 0,
+		production.Products{production.Production{Name: "In", Rate: 1}},
+		production.Products{production.Production{Name: "Out", Rate: 1}},
+		100)
+	s.producers = []production.Producer{f1, f2}
+
+	before := s.treasury
+	s.applySolvency(testLogger())
+
+	// Two solvent factories each pay one tick of upkeep into the treasury.
+	if got, want := s.treasury, before+2*upkeepPerTick; got != want {
+		t.Fatalf("treasury after rent = %v, want %v", got, want)
+	}
+	// Per-factory solvency is unchanged: each wallet still drops by exactly
+	// upkeepPerTick (money's destination moved, not its amount).
+	if got := f1.Wallet.Cash(); got != 100-upkeepPerTick {
+		t.Fatalf("f1 cash = %v, want %v (upkeep still charged to the wallet)", got, 100-upkeepPerTick)
+	}
+	if got := f2.Wallet.Cash(); got != 100-upkeepPerTick {
+		t.Fatalf("f2 cash = %v, want %v", got, 100-upkeepPerTick)
+	}
+}
+
 func Test_applySolvency_removesInsolvent(t *testing.T) {
 	s := newTestState()
 	f := factory.New("Plates", "Recipe_Plates_C", point.Point{X: 0, Y: 0}, 0,
