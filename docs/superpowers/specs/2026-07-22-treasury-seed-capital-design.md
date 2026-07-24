@@ -187,7 +187,73 @@ builds up; this is accepted and is a milestone tuning knob.
 
 ## Status (as implemented)
 
-_To be completed during implementation: milestone run result at seed 152,
-observed treasury trajectory, and whether the packaging-loop pump is
-starved (loop cash and spawn-weight share vs. the Phase 5 baseline of
-~121M / 96 factories)._
+Implemented 2026-07-25. `state/spawn.go` withdraws seed capital from the
+treasury and skips the spawn when short (commit 7a3946f); `state/
+solvency.go` routes upkeep rent into the treasury and recycles positive
+culled residuals (commit 07fe2e4). Regression: `go test ./... -short`
+passes for every package, and `Test_state_determinism` (seed 152, 2000
+ticks) still produces byte-identical wire snapshots across two runs — the
+treasury update is a deterministic scalar; no map-iteration nondeterminism
+was introduced.
+
+**Milestone run at seed 152: NOT REACHED (anticipated).** No
+`SpaceElevatorPart_*` delivery in 100k ticks (`go test ./state -run
+Test_state_Tick -v`; the long-run subtest took 15.5s wall clock, vs Phase
+5's 61s for the same 100k ticks — one signal of a smaller, quieter
+economy). Per the bounded-tuning protocol this phase addresses only root
+cause #1 (the money pump), so a still-red milestone is the anticipated
+outcome, not a regression.
+
+A read-only deterministic probe (checkpoints at 5k/20k/50k/100k ticks,
+extended to 120k to cover the sustained-delivery window; temporary test,
+deleted before commit) confirms the pump is dead and pinpoints exactly
+which remaining root cause blocks delivery:
+
+1. **The seed-capital pump is measurably starved.** The max combined cash
+   held by any single recipe class over the run was **~60.8k**
+   (`Recipe_PackagedCrudeOil_C`) — roughly **2,000x smaller** than Phase
+   5's ~121M. The specific Phase 5 offender, "Unpackage Alumina
+   Solution," peaked at **~21k combined cash across at most 22
+   factories**, vs Phase 5's 96 factories holding 121M combined — its
+   combined cash collapsed by more than three orders of magnitude
+   (~5,700x) and its factory headcount fell by roughly 4x. The treasury
+   itself stayed bounded throughout, oscillating
+   roughly 1.7k–70k across the run (drawn down hard by the first wave of
+   spawns, then refilled by rent) — no runaway growth, matching the "no
+   runaway" argument in Decision 2. The skip-when-short gate is actively
+   firing: 378 spawns were skipped for a short treasury over the
+   120k-tick run.
+
+2. **Iron / space-elevator chain recipes now spawn — a first.** Of the
+   12 space-elevator-part recipes known to the simulation, 9 spawned at
+   least once during the run, including the pioneer "Smart Plating" (the
+   `SpaceElevatorPart_1` recipe) itself. Of the 15 recipes producing the
+   tier immediately below it, 5 spawned, including both of Smart
+   Plating's direct inputs — "Reinforced Iron Plate" and "Rotor" — plus
+   "Modular Frame," "Motor," and "Stator." In Phase 5 these recipes
+   "never spawned" at all; this is a qualitative change directly
+   attributable to the treasury no longer being monopolized by the
+   packaging-loop pump.
+
+3. **But root cause #2 (cascade starvation) still blocks delivery.**
+   Spawning is no longer the bottleneck, yet none of these chain
+   recipes ever completed a production cycle: the milestone gate's own
+   `everProduced` accounting over the first 100k ticks lists 21 distinct
+   products, none from the iron/space-elevator chain (no
+   `IronPlateReinforced`, `Rotor`, or `SpaceElevatorPart_*`). Chain
+   factories spawn, then evidently die from insolvency (300-tick grace)
+   before their input bids can out-compete for Reinforced-Iron-Plate/
+   Rotor supply and complete even one production run — exactly the
+   mechanism Phase 5's probe diagnosed (bids escalate but the wallet cap
+   tops out below the price needed to make a Rotor/Reinforced-Iron-Plate
+   factory attractive). Phase 7 should start from this evidence: the
+   pump is closed, so the next lever is getting a spawned pioneer's
+   demand signal to survive long enough, or reach far enough, to summon
+   its own deep-tier inputs — not the money supply.
+
+The overall economy shape also shifted with the smaller, treasury-gated
+population: max simultaneously-producing factories dropped from 21
+(Phase 5) to 14, and recent trades from 8794 to 909 — but distinct
+products ever produced rose slightly, 18 to 21. The smaller economy that
+does form is more diverse per unit of activity, not merely shrunk
+uniformly.
