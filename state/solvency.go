@@ -8,8 +8,12 @@ import (
 )
 
 // upkeepPerTick is the fixed cost every factory pays per tick just for
-// existing. It is the clock on failure and the drain that balances the
-// sinks' money faucet.
+// existing -- the clock on failure for each individual wallet. Since
+// Phase 6 it is no longer a macro-level money drain: applySolvency
+// collects it into the treasury as rent (funding future seed capital)
+// rather than burning it. The remaining macro drains are the transport
+// share of trades, purchases from wallet-less resource nodes, and
+// negative culled residuals.
 const upkeepPerTick = 0.5
 
 // insolvencyGrace is how many consecutive ticks a factory's wallet may
