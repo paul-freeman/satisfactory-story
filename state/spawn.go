@@ -87,6 +87,19 @@ func (s *State) spawnNewProducer(l *slog.Logger) {
 	}
 	seedCapital := stockCost*inputStockTargetTicks + upkeepPerTick*seedCapitalBufferTicks
 
+	// Seed capital is withdrawn from the finite treasury, not minted. If
+	// the treasury cannot cover this seed, skip the spawn entirely (no
+	// partial funding): an inflated packaging-loop seed that outgrows the
+	// pot is refused, starving the money pump, while cheap recipes stay
+	// fundable from the same pot.
+	if s.treasury < seedCapital {
+		l.Debug("spawn skipped: treasury short",
+			slog.Float64("treasury", s.treasury),
+			slog.Float64("seedCapital", seedCapital))
+		return
+	}
+	s.treasury -= seedCapital
+
 	newFactory := factory.New(chosenRecipe.Name(), chosenRecipe.ID(), s.spawnLocation(chosenRecipe), s.tick,
 		chosenRecipe.Inputs(), chosenRecipe.Outputs(), seedCapital)
 	// Start bidding at the going rate where one exists; the price loop

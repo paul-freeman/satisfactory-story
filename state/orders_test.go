@@ -21,6 +21,7 @@ func newTestState() *State {
 		book:      market.NewBook(),
 		lastTrade: make(map[string]float64),
 		ledger:    &tradeLedger{},
+		treasury:  initialTreasuryFund,
 	}
 }
 

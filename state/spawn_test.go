@@ -22,6 +22,7 @@ func newTestStateWithProducers(rs recipes.Recipes, producers []production.Produc
 		ledger:    &tradeLedger{},
 		randSrc:   rand.New(rand.NewSource(1)),
 		xmin:      0, xmax: 1000, ymin: 0, ymax: 1000,
+		treasury:  initialTreasuryFund,
 	}
 }
 
@@ -344,5 +345,52 @@ func Test_expectedProfit_reads_the_book(t *testing.T) {
 	want = 8.0*5 - ((0.5+defaultTransportEstimate)*5 + upkeepPerTick)
 	if got := s.expectedProfit(recipe); math.Abs(got-want) > 0.0001 {
 		t.Errorf("expected ask-based profit %f, got %f", want, got)
+	}
+}
+
+func Test_spawnNewProducer_withdrawsSeedFromTreasury(t *testing.T) {
+	s := newTestState()
+	s.randSrc = rand.New(rand.NewSource(1))
+	s.xmin, s.xmax, s.ymin, s.ymax = 0, 1000, 0, 1000
+	s.recipes = append(s.recipes, testRecipe(t))
+
+	before := s.treasury
+	s.spawnNewProducer(testLogger())
+
+	var spawned *factory.Factory
+	for _, p := range s.producers {
+		if f, ok := p.(*factory.Factory); ok {
+			spawned = f
+		}
+	}
+	if spawned == nil {
+		t.Fatal("no factory spawned from a funded treasury")
+	}
+	// The withdrawal equals the seed capital, which equals the new
+	// factory's starting cash.
+	if got, want := s.treasury, before-spawned.Wallet.Cash(); got != want {
+		t.Fatalf("treasury after spawn = %v, want %v (withdrew seedCapital %v)",
+			got, want, spawned.Wallet.Cash())
+	}
+}
+
+func Test_spawnNewProducer_skipsWhenTreasuryShort(t *testing.T) {
+	s := newTestState()
+	s.randSrc = rand.New(rand.NewSource(1))
+	s.xmin, s.xmax, s.ymin, s.ymax = 0, 1000, 0, 1000
+	s.recipes = append(s.recipes, testRecipe(t))
+	// testRecipe seed = (10+2)*1*60 + 0.5*300 = 870. Fund below that.
+	s.treasury = 1.0
+
+	before := s.treasury
+	nBefore := len(s.producers)
+	s.spawnNewProducer(testLogger())
+
+	if len(s.producers) != nBefore {
+		t.Fatalf("producers = %d, want %d (spawn must be skipped when treasury is short)",
+			len(s.producers), nBefore)
+	}
+	if s.treasury != before {
+		t.Fatalf("treasury = %v, want %v unchanged (nothing withdrawn on a skip)", s.treasury, before)
 	}
 }

@@ -22,6 +22,15 @@ import (
 
 const (
 	borderPaddingPct = 0.1
+
+	// initialTreasuryFund is the seed-capital pot's starting balance.
+	// All new-factory seed capital is withdrawn from the treasury and it
+	// is replenished by upkeep-as-rent (see applySolvency), so the total
+	// money injected into the economy via spawning is bounded instead of
+	// minted without limit. Deliberately far below any inflated
+	// packaging-loop seed (millions): once a loop's seed request exceeds
+	// the pot, that spawn is skipped and the money pump starves.
+	initialTreasuryFund = 10000.0
 )
 
 type State struct {
@@ -38,6 +47,11 @@ type State struct {
 	// used to estimate input costs for products with no current ask.
 	lastTrade map[string]float64
 	ledger    *tradeLedger
+
+	// treasury funds all new-factory seed capital; withdrawn on spawn,
+	// replenished by upkeep-as-rent. Never negative. See the Phase 6 spec
+	// (docs/superpowers/specs/2026-07-22-treasury-seed-capital-design.md).
+	treasury float64
 
 	seed   int64
 	tick   int
@@ -113,6 +127,7 @@ func (s *State) getInitialState(l *slog.Logger, logLevel *slog.Level, seed int64
 	s.book = market.NewBook()
 	s.lastTrade = make(map[string]float64)
 	s.ledger = &tradeLedger{}
+	s.treasury = initialTreasuryFund
 
 	s.seed = seed
 	s.tick = 0
